@@ -26,9 +26,18 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install ffmpeg
+      - name: Cache Kokoro model
+        id: cache-kokoro-model
+        uses: actions/cache@v4
+        with:
+          path: hf_cache/
+          # Bump the "v1" suffix if you ever switch Kokoro voices/language —
+          # that invalidates the old cache instead of silently reusing it.
+          key: kokoro-model-v1
+
+      - name: Install ffmpeg and espeak-ng
         id: install-ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng
 
       - name: Install Python dependencies
         id: install-deps
@@ -44,6 +53,7 @@ jobs:
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           VIDEO_TOPIC: ${{ matrix.topic }}
+          HF_HOME: ${{ github.workspace }}/hf_cache
 
       - name: Notify Discord on failure
         if: failure()
@@ -64,6 +74,8 @@ jobs:
             FAILED_STEP="Checkout"
           elif [ "${{ steps.setup-python.outcome }}" = "failure" ]; then
             FAILED_STEP="Setup Python"
+          elif [ "${{ steps.cache-kokoro-model.outcome }}" = "failure" ]; then
+            FAILED_STEP="Cache Kokoro model"
           elif [ "${{ steps.install-ffmpeg.outcome }}" = "failure" ]; then
             FAILED_STEP="Install ffmpeg"
           elif [ "${{ steps.install-deps.outcome }}" = "failure" ]; then

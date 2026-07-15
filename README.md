@@ -1,6 +1,6 @@
 # Automated YouTube video pipeline (draft/review mode)
 
-Script → Piper voiceover → Pexels visuals → ffmpeg assembly → **Google Drive
+Script → Kokoro voiceover → Pexels visuals → ffmpeg assembly → **Google Drive
 upload → email you the review link.** No auto-publish — you watch it and
 upload to YouTube yourself when it's ready. Runs daily via GitHub Actions.
 
@@ -10,7 +10,7 @@ main.py                    # orchestrates the pipeline, nothing else
 pipeline/
   config.py                # loads + validates all env vars in one place
   script_gen.py             # Claude API — writes title/description/segments
-  voice.py                  # Piper TTS — narration audio
+  voice.py                  # Kokoro TTS — narration audio
   visuals.py                 # Pexels — one stock image per segment
   assemble.py                # ffmpeg — Ken Burns clips + concat
   drive_delivery.py          # uploads final video to Drive (handles any length)
@@ -79,7 +79,7 @@ by hand (`workflow_dispatch`) before trusting the daily cron.
 ## Testing locally
 ```bash
 pip install -r requirements.txt
-# on macOS: brew install ffmpeg | on Ubuntu: sudo apt install ffmpeg
+# on macOS: brew install ffmpeg espeak-ng | on Ubuntu: sudo apt install ffmpeg espeak-ng
 export GEMINI_API_KEY=...
 export PEXELS_API_KEY=...
 export GOOGLE_SERVICE_ACCOUNT_JSON=...
@@ -95,8 +95,12 @@ checking on the first couple of runs.
   rotates topics or lets Claude pick something new each run.
 - No captions burned in yet (`ffmpeg`'s `drawtext`/`subtitles` filter is the
   next natural addition).
-- Piper's voice model re-downloads every run since Actions runners are
-  ephemeral — add `actions/cache` if you want to skip that.
+- Kokoro's model (~327MB) downloads automatically on first use via
+  Hugging Face. The workflow sets `HF_HOME` to a workspace path and caches
+  it with `actions/cache`, so it only downloads once, not every run.
+- Kokoro needs `espeak-ng` installed as a system package (handled in
+  `publish.yml`) alongside `ffmpeg`. Testing locally, install it yourself:
+  `sudo apt install espeak-ng` (Linux) or `brew install espeak-ng` (macOS).
 - Once you're happy with output quality, adding an actual YouTube upload
   step back in is just one more module (`pipeline/youtube_delivery.py`) —
   the separated structure makes that a clean addition rather than a rewrite.

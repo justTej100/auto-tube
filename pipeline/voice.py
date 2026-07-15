@@ -1,37 +1,39 @@
-import subprocess
+"""Kokoro TTS voiceover generation. Apache 2.0 license (fully commercial-safe,
+same as Piper), no API key, runs locally. Swapped in over Piper for better
+narration quality -- our pipeline renders in a batch job with no latency
+pressure, so Piper's speed advantage doesn't matter here and Kokoro's more
+natural voice does.
+
+Model weights (~327MB) download automatically on first use via
+huggingface_hub, cached under whatever HF_HOME points to -- see
+publish.yml, which sets HF_HOME to a workspace path and caches it with
+actions/cache so this only downloads once, not every run."""
+
 import wave
 from pathlib import Path
 
-import requests
+import numpy as np
+import soundfile as sf
+from kokoro import KPipeline
 
-VOICES_DIR = Path("voices")
-PIPER_MODEL = VOICES_DIR / "en_US-lessac-medium.onnx"
-PIPER_MODEL_JSON = VOICES_DIR / "en_US-lessac-medium.onnx.json"
-PIPER_VOICE_URL = (
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
-    "en/en_US/lessac/medium/en_US-lessac-medium.onnx"
-)
-PIPER_VOICE_JSON_URL = PIPER_VOICE_URL + ".json"
+_pipeline = None
 
 
-def ensure_piper_voice():
-    """Download the voice model if it's not already on disk. Actions
-    runners are ephemeral, so this runs fresh every job — fine, it's ~60MB."""
-    VOICES_DIR.mkdir(exist_ok=True)
-    if not PIPER_MODEL.exists():
-        for url, dest in [(PIPER_VOICE_URL, PIPER_MODEL), (PIPER_VOICE_JSON_URL, PIPER_MODEL_JSON)]:
-            r = requests.get(url, timeout=60)
-            r.raise_for_status()
-            dest.write_bytes(r.content)
+def ensure_kokoro_pipeline():
+    """Loads the pipeline (and triggers the one-time model download if the
+    HF cache is empty). Called once at pipeline start so the download
+    happens up front rather than surprising the first synthesize_speech call."""
+    global _pipeline
+    if _pipeline is None:
+        _pipeline = KPipeline(lang_code="a")  # 'a' = American English
+    return _pipeline
 
 
-def synthesize_speech(text: str, out_path: Path):
-    subprocess.run(
-        ["piper", "--model", str(PIPER_MODEL), "--output_file", str(out_path)],
-        input=text,
-        text=True,
-        check=True,
-    )
+def synthesize_speech(text: str, out_path: Path, voice: str = "af_heart"):
+    pipeline = ensure_kokoro_pipeline()
+    chunks = [audio for _, _, audio in pipeline(text, voice=voice)]
+    full_audio = np.concatenate(chunks) if len(chunks) > 1 else chunks[0]
+    sf.write(str(out_path), full_audio, 24000)
 
 
 def wav_duration_seconds(path: Path) -> float:

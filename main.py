@@ -6,7 +6,7 @@ from pipeline.drive_delivery import upload_to_drive
 from pipeline.discord_notify import send_review_notification
 from pipeline.script_gen import generate_script
 from pipeline.visuals import fetch_image
-from pipeline.voice import ensure_piper_voice, synthesize_speech
+from pipeline.voice import ensure_kokoro_pipeline, synthesize_speech
 
 WORKDIR = Path("build")
 
@@ -14,7 +14,7 @@ WORKDIR = Path("build")
 def main():
     cfg = Config()
     WORKDIR.mkdir(exist_ok=True)
-    ensure_piper_voice()
+    ensure_kokoro_pipeline()
 
     print(f"Generating script for topic: {cfg.video_topic}")
     script = generate_script(cfg.gemini_api_key, cfg.video_topic)

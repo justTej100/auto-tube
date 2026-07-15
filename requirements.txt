@@ -1,5 +1,7 @@
 google-genai
 requests
-piper-tts
+kokoro
+soundfile
+numpy
 google-api-python-client
 google-auth
