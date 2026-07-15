@@ -19,18 +19,23 @@ jobs:
           # add/remove lines here — one line = one video, all rendered in parallel
     steps:
       - uses: actions/checkout@v4
+        id: checkout
 
       - uses: actions/setup-python@v5
+        id: setup-python
         with:
           python-version: '3.12'
 
       - name: Install ffmpeg
+        id: install-ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Install Python dependencies
+        id: install-deps
         run: pip install -r requirements.txt
 
       - name: Run pipeline
+        id: run-pipeline
         run: python main.py
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -39,3 +44,52 @@ jobs:
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           VIDEO_TOPIC: ${{ matrix.topic }}
+
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TOPIC: ${{ matrix.topic }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "::error::DISCORD_WEBHOOK_URL secret is not set — cannot send failure notification"
+            exit 1
+          fi
+
+          FAILED_STEP="unknown"
+          if [ "${{ steps.checkout.outcome }}" = "failure" ]; then
+            FAILED_STEP="Checkout"
+          elif [ "${{ steps.setup-python.outcome }}" = "failure" ]; then
+            FAILED_STEP="Setup Python"
+          elif [ "${{ steps.install-ffmpeg.outcome }}" = "failure" ]; then
+            FAILED_STEP="Install ffmpeg"
+          elif [ "${{ steps.install-deps.outcome }}" = "failure" ]; then
+            FAILED_STEP="Install Python dependencies"
+          elif [ "${{ steps.run-pipeline.outcome }}" = "failure" ]; then
+            FAILED_STEP="Run pipeline"
+          fi
+
+          echo "::error::Pipeline failed at step: ${FAILED_STEP} (topic: ${TOPIC})"
+
+          CONTENT=$(printf '❌ CI failed at step: **%s**\nTopic: %s\nRun: %s' \
+            "$FAILED_STEP" "$TOPIC" "$RUN_URL")
+          PAYLOAD=$(jq -n --arg content "$CONTENT" '{content: $content}')
+
+          HTTP_CODE=$(curl -sS -o /tmp/discord_response.txt -w "%{http_code}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "$DISCORD_WEBHOOK_URL") || {
+              echo "::error::Discord webhook request failed (curl transport error) while notifying about step: ${FAILED_STEP}"
+              exit 1
+            }
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "::error::Discord webhook failed with HTTP ${HTTP_CODE} while notifying about step: ${FAILED_STEP}"
+            cat /tmp/discord_response.txt || true
+            exit 1
+          fi
+
+          echo "Discord failure notification sent for step: ${FAILED_STEP}"
