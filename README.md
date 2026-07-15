@@ -22,9 +22,13 @@ Pexels for a different image source later, you only touch `visuals.py`.
 
 ## One-time setup
 
-### 1. Anthropic + Pexels
-- **Anthropic**: https://console.anthropic.com — create a key, add a couple
-  dollars of prepaid credit (script generation costs pennies).
+### 1. Gemini + Pexels
+- **Gemini**: https://aistudio.google.com — create a free API key, no
+  credit card needed. Script generation uses `gemini-2.5-flash`, well
+  within the free tier's daily limits for one (or even a handful) of videos
+  a day. Note: Google's free-tier terms allow your prompts/responses to be
+  used to improve their models — keep that in mind if your topics are ever
+  sensitive; switch to a billed project if that matters to you.
 - **Pexels**: https://www.pexels.com/api/ — free, instant signup.
 
 ### 2. Google service account (for Drive uploads)
@@ -60,7 +64,7 @@ generate one, and use that as `EMAIL_APP_PASSWORD`.
 
 ### 4. Add GitHub repo secrets
 Repo → Settings → Secrets and variables → Actions → New repository secret:
-- `ANTHROPIC_API_KEY`
+- `GEMINI_API_KEY`
 - `PEXELS_API_KEY`
 - `GOOGLE_SERVICE_ACCOUNT_JSON` (the base64 string from step 2.4)
 - `DRIVE_FOLDER_ID`
@@ -77,7 +81,7 @@ by hand (`workflow_dispatch`) before trusting the daily cron.
 ```bash
 pip install -r requirements.txt
 # on macOS: brew install ffmpeg | on Ubuntu: sudo apt install ffmpeg
-export ANTHROPIC_API_KEY=...
+export GEMINI_API_KEY=...
 export PEXELS_API_KEY=...
 export GOOGLE_SERVICE_ACCOUNT_JSON=...
 export DRIVE_FOLDER_ID=...

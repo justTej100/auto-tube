@@ -1,16 +1,17 @@
 import json
 
-import anthropic
+from google import genai
+from google.genai import types
 
 
 def generate_script(api_key: str, topic: str) -> dict:
-    """Ask Claude for a title, description, and narration segments, each
+    """Ask Gemini for a title, description, and narration segments, each
     paired with an image search query. Returns parsed JSON."""
-    client = anthropic.Anthropic(api_key=api_key)
+    client = genai.Client(api_key=api_key)
 
     prompt = f"""Write a short YouTube video script about: {topic}
 
-Return ONLY valid JSON, no markdown fences, no preamble, in this exact shape:
+Return JSON in this exact shape:
 {{
   "title": "...",
   "description": "...",
@@ -20,10 +21,9 @@ Return ONLY valid JSON, no markdown fences, no preamble, in this exact shape:
   ]
 }}"""
 
-    resp = client.messages.create(
-        model="claude-haiku-4-5",
-        max_tokens=1500,
-        messages=[{"role": "user", "content": prompt}],
+    resp = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(response_mime_type="application/json"),
     )
-    text = resp.content[0].text.strip()
-    return json.loads(text)
+    return json.loads(resp.text)

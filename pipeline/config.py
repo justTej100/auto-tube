@@ -15,7 +15,7 @@ def _require(name: str) -> str:
 
 class Config:
     def __init__(self):
-        self.anthropic_api_key = _require("ANTHROPIC_API_KEY")
+        self.gemini_api_key = _require("GEMINI_API_KEY")
         self.pexels_api_key = _require("PEXELS_API_KEY")
 
         self.google_service_account_json_b64 = _require("GOOGLE_SERVICE_ACCOUNT_JSON")

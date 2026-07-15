@@ -17,7 +17,7 @@ def main():
     ensure_piper_voice()
 
     print(f"Generating script for topic: {cfg.video_topic}")
-    script = generate_script(cfg.anthropic_api_key, cfg.video_topic)
+    script = generate_script(cfg.gemini_api_key, cfg.video_topic)
 
     clip_paths = []
     for i, seg in enumerate(script["segments"]):

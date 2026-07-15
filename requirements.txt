@@ -1,4 +1,4 @@
-anthropic
+google-genai
 requests
 piper-tts
 google-api-python-client
