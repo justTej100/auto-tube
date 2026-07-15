@@ -22,7 +22,7 @@ Return JSON in this exact shape:
 }}"""
 
     resp = client.models.generate_content(
-        model="gemini-3-flash",
+        model="gemini-3-flash-preview",
         contents=prompt,
         config=types.GenerateContentConfig(response_mime_type="application/json"),
     )
