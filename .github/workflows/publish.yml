@@ -9,6 +9,14 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false   # one topic failing shouldn't cancel the others
+      matrix:
+        topic:
+          - "a surprising fact about the deep ocean"
+          - "the history of a common everyday object"
+          - "a weird quirk of human psychology"
+          # add/remove lines here — one line = one video, all rendered in parallel
     steps:
       - uses: actions/checkout@v4
 
@@ -25,11 +33,9 @@ jobs:
       - name: Run pipeline
         run: python main.py
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
-          EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
-          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
-          EMAIL_TO: ${{ secrets.EMAIL_TO }}
-          VIDEO_TOPIC: "a surprising fact about the deep ocean"
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          VIDEO_TOPIC: ${{ matrix.topic }}

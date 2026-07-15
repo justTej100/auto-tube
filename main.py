@@ -3,7 +3,7 @@ from pathlib import Path
 from pipeline.assemble import build_segment_clip, concat_clips
 from pipeline.config import Config
 from pipeline.drive_delivery import upload_to_drive
-from pipeline.notify import send_review_email
+from pipeline.discord_notify import send_review_notification
 from pipeline.script_gen import generate_script
 from pipeline.visuals import fetch_image
 from pipeline.voice import ensure_piper_voice, synthesize_speech
@@ -41,8 +41,8 @@ def main():
     )
     print(f"Uploaded to Drive: {drive_link}")
 
-    send_review_email(cfg.email_address, cfg.email_app_password, cfg.email_to, script["title"], drive_link)
-    print("Review email sent.")
+    send_review_notification(cfg.discord_webhook_url, script["title"], drive_link)
+    print("Discord notification sent.")
 
 
 if __name__ == "__main__":

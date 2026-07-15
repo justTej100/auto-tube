@@ -13,8 +13,8 @@ pipeline/
   voice.py                  # Piper TTS — narration audio
   visuals.py                 # Pexels — one stock image per segment
   assemble.py                # ffmpeg — Ken Burns clips + concat
-  drive_delivery.py          # uploads final video to Drive
-  notify.py                  # emails you the Drive link
+  drive_delivery.py          # uploads final video to Drive (handles any length)
+  discord_notify.py          # posts the Drive link to a Discord channel
 ```
 Each module only knows its own job and takes what it needs as arguments —
 `main.py` is the only place that wires them together. If you want to swap
@@ -57,10 +57,12 @@ no refresh tokens to babysit.
    (`drive.google.com/drive/folders/THIS_PART`) — that's your
    `DRIVE_FOLDER_ID`.
 
-### 3. Gmail app password (for the notification email)
-Your regular Gmail password won't work for SMTP. With 2-Step Verification
-enabled on the account, go to Google Account → Security → App Passwords,
-generate one, and use that as `EMAIL_APP_PASSWORD`.
+### 3. Discord webhook (for the notification)
+No login, no bot, no OAuth. In Discord: open the channel you want notified →
+**Edit Channel → Integrations → Webhooks → New Webhook → Copy Webhook URL**.
+That URL is the entire credential — treat it like a password (anyone who
+has it can post into that channel), so it goes straight into GitHub
+Secrets, never hardcoded.
 
 ### 4. Add GitHub repo secrets
 Repo → Settings → Secrets and variables → Actions → New repository secret:
@@ -68,10 +70,7 @@ Repo → Settings → Secrets and variables → Actions → New repository secre
 - `PEXELS_API_KEY`
 - `GOOGLE_SERVICE_ACCOUNT_JSON` (the base64 string from step 2.4)
 - `DRIVE_FOLDER_ID`
-- `EMAIL_ADDRESS` (the Gmail address sending the notification)
-- `EMAIL_APP_PASSWORD`
-- `EMAIL_TO` (optional — where the review link is sent; defaults to
-  `EMAIL_ADDRESS` if unset)
+- `DISCORD_WEBHOOK_URL`
 
 ### 5. Push and trigger it once manually
 Push this repo to GitHub, then go to the Actions tab and run the workflow
@@ -85,8 +84,7 @@ export GEMINI_API_KEY=...
 export PEXELS_API_KEY=...
 export GOOGLE_SERVICE_ACCOUNT_JSON=...
 export DRIVE_FOLDER_ID=...
-export EMAIL_ADDRESS=...
-export EMAIL_APP_PASSWORD=...
+export DISCORD_WEBHOOK_URL=...
 python main.py
 ```
 Assembled video lands at `build/final.mp4` before it's uploaded — worth
