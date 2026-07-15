@@ -18,7 +18,9 @@ class Config:
         self.gemini_api_key = _require("GEMINI_API_KEY")
         self.pexels_api_key = _require("PEXELS_API_KEY")
 
-        self.google_service_account_json_b64 = _require("GOOGLE_SERVICE_ACCOUNT_JSON")
+        self.google_client_id = _require("GOOGLE_CLIENT_ID")
+        self.google_client_secret = _require("GOOGLE_CLIENT_SECRET")
+        self.google_refresh_token = _require("GOOGLE_REFRESH_TOKEN")
         self.drive_folder_id = _require("DRIVE_FOLDER_ID")
 
         self.discord_webhook_url = _require("DISCORD_WEBHOOK_URL")

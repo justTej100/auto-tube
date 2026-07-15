@@ -31,31 +31,28 @@ Pexels for a different image source later, you only touch `visuals.py`.
   sensitive; switch to a billed project if that matters to you.
 - **Pexels**: https://www.pexels.com/api/ — free, instant signup.
 
-### 2. Google service account (for Drive uploads)
-This replaces the old YouTube OAuth flow entirely — no browser login step,
-no refresh tokens to babysit.
+### 2. Google OAuth (for Drive uploads)
+Service accounts can't upload to a personal Drive — they have no storage
+quota of their own on consumer Google accounts (that path only works on
+paid Workspace accounts with Shared Drives). So uploads authenticate as
+your actual Google account instead, via a one-time login.
 
 1. In [Google Cloud Console](https://console.cloud.google.com), create a
-   project (or reuse one), then enable the **Google Drive API**.
-2. Go to IAM & Admin → Service Accounts → Create Service Account. Give it
-   any name.
-3. Open the new service account → Keys → Add Key → Create new key → JSON.
-   This downloads a `service-account.json` file — **keep it private, it's a
-   credential.**
-4. Base64-encode it (needed to store safely as a GitHub secret):
+   project (or reuse one), enable the **Google Drive API**, then create an
+   OAuth 2.0 Client ID of type **Desktop app**. Download it as
+   `client_secret.json` into this project folder.
+2. Run this once, locally (not in GitHub Actions):
    ```bash
-   base64 -w0 service-account.json      # Linux
-   base64 -i service-account.json       # macOS
+   pip install google-auth-oauthlib
+   python get_drive_token.py
    ```
-   Copy the output — this whole string is your `GOOGLE_SERVICE_ACCOUNT_JSON`
-   secret.
-5. In Google Drive, create (or pick) a folder for review videos, open its
-   sharing settings, and **share it with the service account's email**
-   (looks like `something@your-project.iam.gserviceaccount.com`, found in
-   the JSON file or the Cloud Console) as **Editor**.
-6. Grab that folder's ID from its URL
-   (`drive.google.com/drive/folders/THIS_PART`) — that's your
-   `DRIVE_FOLDER_ID`.
+   This opens a browser for you to log into the Google account you want
+   videos uploaded to. It prints three values — copy them for the next
+   step.
+3. In Google Drive, create (or pick) a folder for review videos and grab
+   its ID from the URL (`drive.google.com/drive/folders/THIS_PART`) — no
+   sharing step needed this time, since you're uploading as yourself now,
+   not as a separate service account.
 
 ### 3. Discord webhook (for the notification)
 No login, no bot, no OAuth. In Discord: open the channel you want notified →
@@ -68,7 +65,9 @@ Secrets, never hardcoded.
 Repo → Settings → Secrets and variables → Actions → New repository secret:
 - `GEMINI_API_KEY`
 - `PEXELS_API_KEY`
-- `GOOGLE_SERVICE_ACCOUNT_JSON` (the base64 string from step 2.4)
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REFRESH_TOKEN`
 - `DRIVE_FOLDER_ID`
 - `DISCORD_WEBHOOK_URL`
 
@@ -82,7 +81,9 @@ pip install -r requirements.txt
 # on macOS: brew install ffmpeg espeak-ng | on Ubuntu: sudo apt install ffmpeg espeak-ng
 export GEMINI_API_KEY=...
 export PEXELS_API_KEY=...
-export GOOGLE_SERVICE_ACCOUNT_JSON=...
+export GOOGLE_CLIENT_ID=...
+export GOOGLE_CLIENT_SECRET=...
+export GOOGLE_REFRESH_TOKEN=...
 export DRIVE_FOLDER_ID=...
 export DISCORD_WEBHOOK_URL=...
 python main.py

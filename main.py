@@ -37,7 +37,8 @@ def main():
 
     filename = f"{script['title']}.mp4"
     drive_link = upload_to_drive(
-        cfg.google_service_account_json_b64, cfg.drive_folder_id, final_path, filename
+        cfg.google_client_id, cfg.google_client_secret, cfg.google_refresh_token,
+        cfg.drive_folder_id, final_path, filename,
     )
     print(f"Uploaded to Drive: {drive_link}")
 

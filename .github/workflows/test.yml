@@ -1,0 +1,45 @@
+name: Test run (single video)
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: 'Topic for this test run'
+        required: false
+        default: 'a surprising fact about the deep ocean'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache Kokoro model
+        uses: actions/cache@v4
+        with:
+          path: hf_cache/
+          key: kokoro-model-v1
+
+      - name: Install ffmpeg and espeak-ng
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pipeline
+        run: python main.py
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          VIDEO_TOPIC: ${{ inputs.topic }}
+          HF_HOME: ${{ github.workspace }}/hf_cache
