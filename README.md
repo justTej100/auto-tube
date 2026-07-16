@@ -53,6 +53,16 @@ your actual Google account instead, via a one-time login.
    its ID from the URL (`drive.google.com/drive/folders/THIS_PART`) — no
    sharing step needed this time, since you're uploading as yourself now,
    not as a separate service account.
+4. Once all three values are safely saved as GitHub secrets, **delete your
+   local `client_secret.json` and any venv you made to run this script.**
+   Neither is needed again — the credentials now live in GitHub Secrets,
+   which is what the pipeline actually reads from:
+   ```bash
+   rm -rf venv client_secret.json get_drive_token.py
+   ```
+   (If you ever need to redo this — e.g. the refresh token gets revoked —
+   you can always re-download a fresh client_secret.json from Google Cloud
+   Console → Google Auth Platform → Clients → your Desktop app client.)
 
 ### 3. Discord webhook (for the notification)
 No login, no bot, no OAuth. In Discord: open the channel you want notified →
