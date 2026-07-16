@@ -16,6 +16,7 @@ def _require(name: str) -> str:
 class Config:
     def __init__(self):
         self.gemini_api_key = _require("GEMINI_API_KEY")
+        self.hf_token = os.environ.get("HF_TOKEN")  # optional -- enables the fallback
         self.pexels_api_key = _require("PEXELS_API_KEY")
 
         self.google_client_id = _require("GOOGLE_CLIENT_ID")

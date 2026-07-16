@@ -22,14 +22,22 @@ Pexels for a different image source later, you only touch `visuals.py`.
 
 ## One-time setup
 
-### 1. Gemini + Pexels
+### 1. Gemini + Pexels (+ optional Hugging Face fallback)
 - **Gemini**: https://aistudio.google.com — create a free API key, no
-  credit card needed. Script generation uses `gemini-2.5-flash`, well
-  within the free tier's daily limits for one (or even a handful) of videos
-  a day. Note: Google's free-tier terms allow your prompts/responses to be
-  used to improve their models — keep that in mind if your topics are ever
-  sensitive; switch to a billed project if that matters to you.
+  credit card needed. Script generation uses `gemini-3-flash-preview`,
+  well within the free tier's daily limits for one (or even a handful) of
+  videos a day. Note: Google's free-tier terms allow your prompts/responses
+  to be used to improve their models — keep that in mind if your topics
+  are ever sensitive; switch to a billed project if that matters to you.
 - **Pexels**: https://www.pexels.com/api/ — free, instant signup.
+- **(Optional) Hugging Face** — only needed for automatic fallback when
+  Gemini has an outage or hits a "high demand" 503. If Gemini fails after
+  3 retries, the pipeline automatically retries with a free Hugging
+  Face-hosted model instead of just failing the run. Get a free token at
+  https://huggingface.co/settings/tokens (Read access is enough) and add
+  it as `HF_TOKEN`. Skip this if you're fine with a run occasionally
+  failing during a Gemini outage — without this secret set, behavior is
+  unchanged, Gemini errors just raise as before.
 
 ### 2. Google OAuth (for Drive uploads)
 Service accounts can't upload to a personal Drive — they have no storage
@@ -74,6 +82,7 @@ Secrets, never hardcoded.
 ### 4. Add GitHub repo secrets
 Repo → Settings → Secrets and variables → Actions → New repository secret:
 - `GEMINI_API_KEY`
+- `HF_TOKEN` (optional — enables the Gemini-outage fallback described above)
 - `PEXELS_API_KEY`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
