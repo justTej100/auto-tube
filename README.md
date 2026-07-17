@@ -12,7 +12,7 @@ pipeline/
   script_gen.py             # Claude API — writes title/description/segments
   voice.py                  # Chatterbox-Turbo — voice-cloned narration (CPU, self-hosted, free)
   visuals.py                 # Pexels — one stock image per segment
-  assemble.py                # ffmpeg — Ken Burns clips + concat
+  assemble.py                # ffmpeg — Ken Burns clips, burned-in captions, concat, optional music
   drive_delivery.py          # uploads final video to Drive (handles any length)
   discord_notify.py          # posts the Drive link to a Discord channel
 ```
@@ -26,7 +26,8 @@ Pexels for a different image source later, you only touch `visuals.py`.
 Voice cloning needs a sample of the target voice to clone. Record 5-20
 seconds of clean audio (one speaker, minimal background noise, your own
 voice with your own consent) and save it as `assets/voice_reference.wav`
-in this repo before running anything.
+**or** `assets/voice_reference.mp3` in this repo before running anything
+— mp3 gets auto-converted to wav via ffmpeg, either format works fine.
 
 ### 1. Gemini + Pexels (+ optional Hugging Face fallback)
 - **Gemini**: https://aistudio.google.com — create a free API key, no
@@ -121,8 +122,12 @@ checking on the first couple of runs.
 ## Things you'll likely want to change next
 - `VIDEO_TOPIC` is hardcoded in the workflow env — swap for logic that
   rotates topics or lets Claude pick something new each run.
-- No captions burned in yet (`ffmpeg`'s `drawtext`/`subtitles` filter is the
-  next natural addition).
+- Captions are burned into every segment via `drawtext`, wrapped to a
+  readable width automatically.
+- **Optional background music**: drop a royalty-free track (from wherever
+  you like — YouTube Audio Library, Pixabay Music, etc.) at
+  `assets/background_music.mp3`. It'll be mixed in at low volume under the
+  narration automatically. No file there = no music, silently skipped.
 - Chatterbox-Turbo's model downloads automatically on first use via
   Hugging Face. The workflow sets `HF_HOME` to a workspace path and caches
   it with `actions/cache`, so it only downloads once, not every run.
