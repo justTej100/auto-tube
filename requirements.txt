@@ -1,8 +1,8 @@
 google-genai
 huggingface_hub
 requests
-kokoro
-soundfile
-numpy
+chatterbox-tts
+torch
+torchaudio
 google-api-python-client
 google-auth
