@@ -24,20 +24,20 @@ jobs:
       - uses: actions/setup-python@v5
         id: setup-python
         with:
-          python-version: '3.12'
+          python-version: '3.11'   # chatterbox-tts requires 3.11 specifically
 
-      - name: Cache Kokoro model
-        id: cache-kokoro-model
+      - name: Cache Chatterbox model
+        id: cache-chatterbox-model
         uses: actions/cache@v4
         with:
           path: hf_cache/
-          # Bump the "v1" suffix if you ever switch Kokoro voices/language —
-          # that invalidates the old cache instead of silently reusing it.
-          key: kokoro-model-v1
+          # Bump the "v1" suffix if you ever swap models -- invalidates
+          # the old cache instead of silently reusing it.
+          key: chatterbox-turbo-model-v1
 
-      - name: Install ffmpeg and espeak-ng
+      - name: Install ffmpeg
         id: install-ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Install Python dependencies
         id: install-deps
@@ -77,8 +77,8 @@ jobs:
             FAILED_STEP="Checkout"
           elif [ "${{ steps.setup-python.outcome }}" = "failure" ]; then
             FAILED_STEP="Setup Python"
-          elif [ "${{ steps.cache-kokoro-model.outcome }}" = "failure" ]; then
-            FAILED_STEP="Cache Kokoro model"
+          elif [ "${{ steps.cache-chatterbox-model.outcome }}" = "failure" ]; then
+            FAILED_STEP="Cache Chatterbox model"
           elif [ "${{ steps.install-ffmpeg.outcome }}" = "failure" ]; then
             FAILED_STEP="Install ffmpeg"
           elif [ "${{ steps.install-deps.outcome }}" = "failure" ]; then

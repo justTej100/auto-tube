@@ -1,6 +1,6 @@
 # Automated YouTube video pipeline (draft/review mode)
 
-Script → Kokoro voiceover → Pexels visuals → ffmpeg assembly → **Google Drive
+Script → Chatterbox-Turbo voice clone → Pexels visuals → ffmpeg assembly → **Google Drive
 upload → email you the review link.** No auto-publish — you watch it and
 upload to YouTube yourself when it's ready. Runs daily via GitHub Actions.
 
@@ -10,7 +10,7 @@ main.py                    # orchestrates the pipeline, nothing else
 pipeline/
   config.py                # loads + validates all env vars in one place
   script_gen.py             # Claude API — writes title/description/segments
-  voice.py                  # Kokoro TTS — narration audio
+  voice.py                  # Chatterbox-Turbo — voice-cloned narration (CPU, self-hosted, free)
   visuals.py                 # Pexels — one stock image per segment
   assemble.py                # ffmpeg — Ken Burns clips + concat
   drive_delivery.py          # uploads final video to Drive (handles any length)
@@ -21,6 +21,12 @@ Each module only knows its own job and takes what it needs as arguments —
 Pexels for a different image source later, you only touch `visuals.py`.
 
 ## One-time setup
+
+### 0. Voice reference clip
+Voice cloning needs a sample of the target voice to clone. Record 5-20
+seconds of clean audio (one speaker, minimal background noise, your own
+voice with your own consent) and save it as `assets/voice_reference.wav`
+in this repo before running anything.
 
 ### 1. Gemini + Pexels (+ optional Hugging Face fallback)
 - **Gemini**: https://aistudio.google.com — create a free API key, no
@@ -97,7 +103,9 @@ by hand (`workflow_dispatch`) before trusting the daily cron.
 ## Testing locally
 ```bash
 pip install -r requirements.txt
-# on macOS: brew install ffmpeg espeak-ng | on Ubuntu: sudo apt install ffmpeg espeak-ng
+# on macOS: brew install ffmpeg | on Ubuntu: sudo apt install ffmpeg
+# Note: chatterbox-tts requires Python 3.11 specifically.
+# Add your voice sample at assets/voice_reference.wav before running.
 export GEMINI_API_KEY=...
 export PEXELS_API_KEY=...
 export GOOGLE_CLIENT_ID=...
@@ -115,12 +123,18 @@ checking on the first couple of runs.
   rotates topics or lets Claude pick something new each run.
 - No captions burned in yet (`ffmpeg`'s `drawtext`/`subtitles` filter is the
   next natural addition).
-- Kokoro's model (~327MB) downloads automatically on first use via
+- Chatterbox-Turbo's model downloads automatically on first use via
   Hugging Face. The workflow sets `HF_HOME` to a workspace path and caches
   it with `actions/cache`, so it only downloads once, not every run.
-- Kokoro needs `espeak-ng` installed as a system package (handled in
-  `publish.yml`) alongside `ffmpeg`. Testing locally, install it yourself:
-  `sudo apt install espeak-ng` (Linux) or `brew install espeak-ng` (macOS).
+- **Runs on CPU, self-hosted, genuinely $0** — but no confirmed benchmark
+  exists for this model's CPU speed specifically, so **test via `test.yml`
+  before trusting timing in the daily matrix run.** If it's too slow for
+  your video length, the two fallback options are paying for a hosted GPU
+  API (fal.ai has Chatterbox-Turbo at ~$0.025/1,000 characters) or paying
+  for ElevenLabs directly.
+- Requires **Python 3.11 specifically** — both workflow files are pinned
+  to it; don't bump to a newer Python version without checking
+  chatterbox-tts's compatibility first.
 - Once you're happy with output quality, adding an actual YouTube upload
   step back in is just one more module (`pipeline/youtube_delivery.py`) —
   the separated structure makes that a clean addition rather than a rewrite.

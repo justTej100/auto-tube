@@ -17,16 +17,18 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'   # chatterbox-tts requires 3.11 specifically
 
-      - name: Cache Kokoro model
+      - name: Cache Chatterbox model
         uses: actions/cache@v4
         with:
           path: hf_cache/
-          key: kokoro-model-v1
+          # Bump the "v1" suffix if you ever swap models -- invalidates
+          # the old cache instead of silently reusing it.
+          key: chatterbox-turbo-model-v1
 
-      - name: Install ffmpeg and espeak-ng
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt
