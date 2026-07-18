@@ -45,7 +45,10 @@ jobs:
 
       - name: Run pipeline
         id: run-pipeline
-        run: python main.py
+        shell: bash
+        run: |
+          set -o pipefail
+          python main.py 2>&1 | tee pipeline_output.log
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -89,9 +92,19 @@ jobs:
 
           echo "::error::Pipeline failed at step: ${FAILED_STEP} (topic: ${TOPIC})"
 
-          CONTENT=$(printf '❌ CI failed at step: **%s**\nTopic: %s\nRun: %s' \
-            "$FAILED_STEP" "$TOPIC" "$RUN_URL")
-          PAYLOAD=$(jq -n --arg content "$CONTENT" '{content: $content}')
+          # Grab the tail of the actual error output, if the pipeline got
+          # far enough to produce a log. Truncated to stay well under
+          # Discord's 2000-character message limit alongside the rest of
+          # the message.
+          ERROR_TAIL="(no pipeline_output.log -- failure happened before the pipeline ran)"
+          if [ -f pipeline_output.log ]; then
+            ERROR_TAIL=$(tail -n 25 pipeline_output.log | cut -c1-1200)
+          fi
+
+          CONTENT=$(printf '❌ CI failed at step: **%s**\nTopic: %s\nRun: %s\n```\n%s\n```' \
+            "$FAILED_STEP" "$TOPIC" "$RUN_URL" "$ERROR_TAIL")
+          PAYLOAD=$(jq -n --arg content "$CONTENT" --arg username "auto-tube devops" \
+            '{content: $content, username: $username}')
 
           HTTP_CODE=$(curl -sS -o /tmp/discord_response.txt -w "%{http_code}" \
             -H "Content-Type: application/json" \
