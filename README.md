@@ -1,4 +1,4 @@
-# Automated YouTube video pipeline (draft/review mode)
+# Automated YouTube video pipeline 
 
 Script → Chatterbox-Turbo voice clone → Pexels visuals → ffmpeg assembly → **Google Drive
 upload → email you the review link.** No auto-publish — you watch it and
