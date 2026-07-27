@@ -93,31 +93,45 @@ jobs:
           echo "::error::Pipeline failed at step: ${FAILED_STEP} (topic: ${TOPIC})"
 
           # Grab the tail of the actual error output, if the pipeline got
-          # far enough to produce a log. Truncated to stay well under
-          # Discord's 2000-character message limit alongside the rest of
-          # the message.
+          # far enough to produce a log. Messages over Discord's 2000-char
+          # limit are split and sent as multiple webhook posts.
           ERROR_TAIL="(no pipeline_output.log -- failure happened before the pipeline ran)"
           if [ -f pipeline_output.log ]; then
-            ERROR_TAIL=$(tail -n 25 pipeline_output.log | cut -c1-1200)
+            ERROR_TAIL=$(tail -n 80 pipeline_output.log)
           fi
 
           CONTENT=$(printf '❌ CI failed at step: **%s**\nTopic: %s\nRun: %s\n```\n%s\n```' \
             "$FAILED_STEP" "$TOPIC" "$RUN_URL" "$ERROR_TAIL")
-          PAYLOAD=$(jq -n --arg content "$CONTENT" --arg username "auto-tube devops" \
-            '{content: $content, username: $username}')
 
-          HTTP_CODE=$(curl -sS -o /tmp/discord_response.txt -w "%{http_code}" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD" \
-            "$DISCORD_WEBHOOK_URL") || {
-              echo "::error::Discord webhook request failed (curl transport error) while notifying about step: ${FAILED_STEP}"
+          MAX_LEN=2000
+          OFFSET=0
+          TOTAL_LEN=${#CONTENT}
+          PART=0
+
+          while [ "$OFFSET" -lt "$TOTAL_LEN" ]; do
+            CHUNK="${CONTENT:$OFFSET:$MAX_LEN}"
+            PART=$((PART + 1))
+            PAYLOAD=$(jq -n --arg content "$CHUNK" --arg username "auto-tube devops" \
+              '{content: $content, username: $username}')
+
+            HTTP_CODE=$(curl -sS -o /tmp/discord_response.txt -w "%{http_code}" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD" \
+              "$DISCORD_WEBHOOK_URL") || {
+                echo "::error::Discord webhook request failed (curl transport error) while notifying about step: ${FAILED_STEP}"
+                exit 1
+              }
+
+            if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+              echo "::error::Discord webhook failed with HTTP ${HTTP_CODE} while notifying about step: ${FAILED_STEP}"
+              cat /tmp/discord_response.txt || true
               exit 1
-            }
+            fi
 
-          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-            echo "::error::Discord webhook failed with HTTP ${HTTP_CODE} while notifying about step: ${FAILED_STEP}"
-            cat /tmp/discord_response.txt || true
-            exit 1
-          fi
+            OFFSET=$((OFFSET + MAX_LEN))
+            if [ "$OFFSET" -lt "$TOTAL_LEN" ]; then
+              sleep 0.4
+            fi
+          done
 
-          echo "Discord failure notification sent for step: ${FAILED_STEP}"
+          echo "Discord failure notification sent for step: ${FAILED_STEP} (${PART} message(s))"
