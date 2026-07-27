@@ -5,6 +5,7 @@ whole run. The fallback only activates if HF_TOKEN is set -- if it's not,
 behavior is unchanged from before (Gemini errors just raise)."""
 
 import json
+import re
 import time
 
 from google import genai
@@ -14,6 +15,31 @@ from huggingface_hub import InferenceClient
 from pipeline.quality import QUALITY_THRESHOLD, score_script
 
 MAX_QUALITY_RETRIES = 3
+MAX_HF_JSON_RETRIES = 3
+
+SCRIPT_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "description": {"type": "string"},
+        "segments": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "narration": {"type": "string"},
+                    "image_query": {"type": "string"},
+                },
+                "required": ["narration", "image_query"],
+                "additionalProperties": False,
+            },
+            "minItems": 6,
+            "maxItems": 10,
+        },
+    },
+    "required": ["title", "description", "segments"],
+    "additionalProperties": False,
+}
 
 PROMPT_TEMPLATE = """Write a script for a short, punchy YouTube video about: {topic}
 
@@ -51,21 +77,53 @@ Return JSON in this exact shape:
     {{"narration": "one or two sentences", "image_query": "specific vivid visual, 3-6 words"}},
     ... (6 to 10 segments total)
   ]
-}}"""
+}}
+
+JSON rules: use double quotes only, no trailing commas, no comments,
+and escape any double quotes inside string values as \\". """
 
 
-def _extract_json(text: str) -> dict:
+def _repair_json(blob: str) -> str:
+    """Fix common LLM JSON mistakes that otherwise fail json.loads."""
+    blob = blob.replace("\u201c", '"').replace("\u201d", '"')
+    blob = blob.replace("\u2018", "'").replace("\u2019", "'")
+    # Trailing commas before } or ]
+    blob = re.sub(r",\s*([}\]])", r"\1", blob)
+    return blob
+
+
+def _extract_json(text: str | None) -> dict:
     """Fallback models are less reliable about 'return only JSON' than
     Gemini's structured output mode -- strips markdown fences and any
     stray commentary around the JSON object before parsing."""
+    if not text or not text.strip():
+        raise ValueError("Model returned empty content; expected a JSON script object")
+
     text = text.strip()
     if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"):
+        # Prefer the fenced block contents; fall back to stripping the opener.
+        parts = text.split("```")
+        text = parts[1] if len(parts) > 1 else text[3:]
+        text = text.lstrip()
+        if text.lower().startswith("json"):
             text = text[4:]
+
     start = text.find("{")
     end = text.rfind("}")
-    return json.loads(text[start:end + 1])
+    if start < 0 or end < 0 or end <= start:
+        raise ValueError(f"No JSON object found in model response: {text[:200]!r}")
+
+    blob = _repair_json(text[start : end + 1])
+    try:
+        return json.loads(blob)
+    except json.JSONDecodeError as e:
+        snippet_start = max(0, e.pos - 60)
+        snippet = blob[snippet_start : e.pos + 60]
+        raise json.JSONDecodeError(
+            f"{e.msg} near: {snippet!r}",
+            blob,
+            e.pos,
+        ) from None
 
 
 def _generate_with_gemini(api_key: str, topic: str, attempts: int = 3) -> dict:
@@ -91,15 +149,69 @@ def _generate_with_gemini(api_key: str, topic: str, attempts: int = 3) -> dict:
     raise last_error
 
 
+def _hf_chat_json(client: InferenceClient, prompt: str) -> str:
+    """Ask HF for JSON. Prefer structured output; fall back if unsupported."""
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You output only valid JSON objects that match the requested "
+                "schema. No markdown fences, no commentary."
+            ),
+        },
+        {"role": "user", "content": prompt},
+    ]
+    kwargs = {
+        "model": "meta-llama/Llama-3.1-8B-Instruct",
+        "messages": messages,
+        "max_tokens": 2048,
+        "temperature": 0.4,
+    }
+
+    try:
+        completion = client.chat.completions.create(
+            **kwargs,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "youtube_script",
+                    "schema": SCRIPT_JSON_SCHEMA,
+                    "strict": True,
+                },
+            },
+        )
+    except Exception as e:
+        print(f"HF json_schema response_format unsupported ({e}); trying json_object.")
+        try:
+            completion = client.chat.completions.create(
+                **kwargs,
+                response_format={"type": "json_object"},
+            )
+        except Exception as e2:
+            print(f"HF json_object response_format unsupported ({e2}); plain chat.")
+            completion = client.chat.completions.create(**kwargs)
+
+    return completion.choices[0].message.content
+
+
 def _generate_with_huggingface(hf_token: str, topic: str) -> dict:
     client = InferenceClient(api_key=hf_token)
     prompt = PROMPT_TEMPLATE.format(topic=topic) + "\n\nReturn ONLY the JSON object, no other text."
 
-    completion = client.chat.completions.create(
-        model="meta-llama/Llama-3.1-8B-Instruct",
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return _extract_json(completion.choices[0].message.content)
+    last_error = None
+    for attempt in range(1, MAX_HF_JSON_RETRIES + 1):
+        try:
+            content = _hf_chat_json(client, prompt)
+            return _extract_json(content)
+        except (json.JSONDecodeError, ValueError, TypeError, IndexError, KeyError) as e:
+            last_error = e
+            print(f"HF JSON parse attempt {attempt}/{MAX_HF_JSON_RETRIES} failed: {e}")
+            if attempt < MAX_HF_JSON_RETRIES:
+                time.sleep(2 * attempt)
+    raise RuntimeError(
+        f"Hugging Face fallback returned unparseable JSON after "
+        f"{MAX_HF_JSON_RETRIES} attempts: {last_error}"
+    ) from last_error
 
 
 def _generate_once(gemini_api_key: str, topic: str, hf_token: str | None) -> dict:
