@@ -7,6 +7,7 @@ behavior is unchanged from before (Gemini errors just raise)."""
 import json
 import re
 import time
+from dataclasses import dataclass
 
 from google import genai
 from google.genai import types
@@ -16,6 +17,13 @@ from pipeline.quality import QUALITY_THRESHOLD, score_script
 
 MAX_QUALITY_RETRIES = 3
 MAX_HF_JSON_RETRIES = 3
+
+
+@dataclass(frozen=True)
+class ScriptResult:
+    """Script JSON plus which model actually produced the accepted draft."""
+    script: dict
+    provider: str  # "Gemini" or "Hugging Face"
 
 SCRIPT_JSON_SCHEMA = {
     "type": "object",
@@ -249,14 +257,16 @@ def _generate_once(
     topic: str,
     hf_token: str | None,
     research_context: str | None = None,
-) -> dict:
+) -> ScriptResult:
     try:
-        return _generate_with_gemini(gemini_api_key, topic, research_context)
+        script = _generate_with_gemini(gemini_api_key, topic, research_context)
+        return ScriptResult(script=script, provider="Gemini")
     except Exception as e:
         if not hf_token:
             raise
         print(f"Gemini unavailable after retries ({e}). Falling back to Hugging Face.")
-        return _generate_with_huggingface(hf_token, topic, research_context)
+        script = _generate_with_huggingface(hf_token, topic, research_context)
+        return ScriptResult(script=script, provider="Hugging Face")
 
 
 def generate_script(
@@ -264,7 +274,7 @@ def generate_script(
     topic: str,
     hf_token: str | None = None,
     research_context: str | None = None,
-) -> dict:
+) -> ScriptResult:
     """Generates a script, then runs it through the quality gate
     (pipeline/quality.py). Below-threshold scripts get regenerated up to
     MAX_QUALITY_RETRIES times before the run fails outright -- better to
@@ -276,12 +286,15 @@ def generate_script(
     last_score, last_breakdown, last_issues = None, None, None
 
     for attempt in range(1, MAX_QUALITY_RETRIES + 1):
-        script = _generate_once(gemini_api_key, topic, hf_token, research_context)
-        score, breakdown, issues = score_script(script)
-        print(f"Quality gate attempt {attempt}/{MAX_QUALITY_RETRIES}: {score}/100 {breakdown}")
+        result = _generate_once(gemini_api_key, topic, hf_token, research_context)
+        score, breakdown, issues = score_script(result.script)
+        print(
+            f"Quality gate attempt {attempt}/{MAX_QUALITY_RETRIES}: "
+            f"{score}/100 {breakdown} (via {result.provider})"
+        )
 
         if score >= QUALITY_THRESHOLD:
-            return script
+            return result
 
         print(f"Below threshold ({QUALITY_THRESHOLD}). Issues: {issues}")
         last_score, last_breakdown, last_issues = score, breakdown, issues

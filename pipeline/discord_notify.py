@@ -1,10 +1,40 @@
 import requests
 
 
-def send_review_notification(webhook_url: str, title: str, drive_link: str):
-    """Posts a message into the configured Discord channel via webhook —
-    no bot, no login, just a POST to the webhook URL."""
-    content = f'🎬 New video ready for review: **{title}**\n{drive_link}'
+def send_review_notification(
+    webhook_url: str,
+    title: str,
+    drive_link: str,
+    *,
+    topic: str | None = None,
+    topic_picker: str | None = None,
+    script_provider: str | None = None,
+    research_sources: list[str] | None = None,
+):
+    """Posts a review link plus which models/sources powered this run."""
+    lines = [f"🎬 New video ready for review: **{title}**", drive_link]
+
+    if topic:
+        lines.append(f"Topic: {topic}")
+
+    details: list[str] = []
+    if topic_picker:
+        details.append(f"Topic pick: **{topic_picker}**")
+    if script_provider:
+        details.append(f"Script gen: **{script_provider}**")
+    if research_sources:
+        details.append(f"Research: {', '.join(research_sources)}")
+    elif topic_picker is None and topic:
+        details.append("Research: skipped (manual `VIDEO_TOPIC`)")
+
+    if details:
+        lines.append("")
+        lines.extend(details)
+
+    content = "\n".join(lines)
+    if len(content) > 1900:
+        content = content[:1890] + "\n…(truncated)"
+
     resp = requests.post(webhook_url, json={"content": content}, timeout=30)
     resp.raise_for_status()
 

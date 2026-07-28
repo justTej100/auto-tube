@@ -18,6 +18,9 @@ def main():
     WORKDIR.mkdir(exist_ok=True)
 
     research_context = None
+    topic_picker = None
+    research_sources: list[str] = []
+
     if cfg.video_topic:
         topic = cfg.video_topic
         print(f"Using provided topic: {topic}")
@@ -37,16 +40,20 @@ def main():
         )
         topic = research.topic
         research_context = research.research_context
+        topic_picker = research.topic_picker
+        research_sources = list(research.used_sources)
         if research.skipped_sources:
             print(f"Skipped sources: {', '.join(research.skipped_sources)}")
-        print(f"Topic selected: {topic}")
+        print(f"Topic selected via {topic_picker}: {topic}")
 
-    script = generate_script(
+    script_result = generate_script(
         cfg.gemini_api_key,
         topic,
         cfg.hf_token,
         research_context=research_context,
     )
+    script = script_result.script
+    print(f"Script generated via {script_result.provider}")
 
     clip_paths = []
     for i, seg in enumerate(script["segments"]):
@@ -80,7 +87,15 @@ def main():
     )
     print(f"Uploaded to Drive: {drive_link}")
 
-    send_review_notification(cfg.discord_webhook_url, script["title"], drive_link)
+    send_review_notification(
+        cfg.discord_webhook_url,
+        script["title"],
+        drive_link,
+        topic=topic,
+        topic_picker=topic_picker,
+        script_provider=script_result.provider,
+        research_sources=research_sources or None,
+    )
     print("Discord notification sent.")
 
 

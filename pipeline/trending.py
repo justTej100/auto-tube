@@ -43,6 +43,9 @@ class TopicResearch:
     topic: str
     research_context: str
     skipped_sources: tuple[str, ...] = ()
+    used_sources: tuple[str, ...] = ()
+    # "Gemini" or "Hugging Face" — which model picked the topic.
+    topic_picker: str = "Gemini"
 
 
 @dataclass
@@ -423,14 +426,18 @@ def pick_todays_topic(
 
     try:
         topic = _pick_topic_with_gemini(gemini_api_key, research_context)
+        topic_picker = "Gemini"
     except Exception as e:
         if not hf_token:
             raise RuntimeError(f"Topic picking failed and no HF_TOKEN set: {e}") from e
         print(f"Gemini topic pick failed ({e}). Falling back to Hugging Face.")
         topic = _pick_topic_with_huggingface(hf_token, research_context)
+        topic_picker = "Hugging Face"
 
     return TopicResearch(
         topic=topic,
         research_context=research_context,
         skipped_sources=tuple(a.name for a in skipped),
+        used_sources=tuple(a.name for a in successful),
+        topic_picker=topic_picker,
     )
