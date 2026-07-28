@@ -22,10 +22,23 @@ def main():
         topic = cfg.video_topic
         print(f"Using provided topic: {topic}")
     else:
-        print("Researching today's trending topic (Gemini grounded search + Reddit)...")
-        research = pick_todays_topic(cfg.gemini_api_key)
+        print(
+            "Researching today's trending topic "
+            "(Gemini grounded search first, then HN / Wikipedia / RSS / "
+            "YouTube / Reddit)..."
+        )
+        research = pick_todays_topic(
+            cfg.gemini_api_key,
+            discord_webhook_url=cfg.discord_webhook_url,
+            hf_token=cfg.hf_token,
+            youtube_api_key=cfg.youtube_api_key,
+            reddit_client_id=cfg.reddit_client_id,
+            reddit_client_secret=cfg.reddit_client_secret,
+        )
         topic = research.topic
         research_context = research.research_context
+        if research.skipped_sources:
+            print(f"Skipped sources: {', '.join(research.skipped_sources)}")
         print(f"Topic selected: {topic}")
 
     script = generate_script(

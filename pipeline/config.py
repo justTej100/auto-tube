@@ -26,6 +26,12 @@ class Config:
 
         self.discord_webhook_url = _require("DISCORD_WEBHOOK_URL")
 
+        # Optional research sources -- missing => that source is skipped
+        # (and Discord is notified), not a hard config failure.
+        self.youtube_api_key = os.environ.get("YOUTUBE_API_KEY") or None
+        self.reddit_client_id = os.environ.get("REDDIT_CLIENT_ID") or None
+        self.reddit_client_secret = os.environ.get("REDDIT_CLIENT_SECRET") or None
+
         # No default -- if unset, main.py runs trending research instead.
         # Pass VIDEO_TOPIC in CI (workflow_dispatch input) to override.
         self.video_topic = os.environ.get("VIDEO_TOPIC") or None
