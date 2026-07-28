@@ -26,6 +26,6 @@ class Config:
 
         self.discord_webhook_url = _require("DISCORD_WEBHOOK_URL")
 
-        self.video_topic = os.environ.get("VIDEO_TOPIC", "a surprising fact about the deep ocean")
-        self.voice_name = os.environ.get("VOICE_NAME", "af_heart")
-        self.voice_speed = float(os.environ.get("VOICE_SPEED", "1.0"))
+        # No default -- if unset, main.py runs trending research instead.
+        # Pass VIDEO_TOPIC in CI (workflow_dispatch input) to override.
+        self.video_topic = os.environ.get("VIDEO_TOPIC") or None

@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       topic:
-        description: 'Topic for this test run'
+        description: 'Optional topic override (leave blank to research trending)'
         required: false
-        default: 'a surprising fact about the deep ocean'
+        default: ''
 
 jobs:
   test:
@@ -44,5 +44,6 @@ jobs:
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # Blank input => trending research in main.py
           VIDEO_TOPIC: ${{ inputs.topic }}
           HF_HOME: ${{ github.workspace }}/hf_cache

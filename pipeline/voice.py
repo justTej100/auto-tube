@@ -5,7 +5,7 @@ free CPU runner -- no paid API, no GPU needed. Genuinely $0.
 Real caveats, worth knowing before trusting this in the daily run:
   - No confirmed benchmark exists for this model's CPU speed specifically.
     Expect several minutes per video, not seconds -- test via test.yml
-    before relying on this in the parallel matrix workflow.
+    before relying on this in the daily workflow.
   - Requires Python 3.11 specifically (fails to install on newer versions
     as of early 2026) -- see the workflow files' python-version setting.
   - The published checkpoint was saved with CUDA tensor mappings; loading

@@ -42,10 +42,13 @@ SCRIPT_JSON_SCHEMA = {
 }
 
 PROMPT_TEMPLATE = """Write a script for a short, punchy YouTube video about: {topic}
-
+{research_block}
 You're writing for a fast-scrolling audience who will swipe away in 2
 seconds if they're not hooked immediately. Follow these rules:
 
+- Ground the script in the research above when it's provided -- use real
+  current details, names, numbers, and angles from that material. Do not
+  invent a generic "surprising fact" that ignores what's actually trending.
 - Segment 1 MUST open with a surprising claim, a question, or a
   "you'd think X, but actually Y" twist -- never a boring setup line like
   "Did you know..." or "Today we're talking about...". Earn the next
@@ -62,25 +65,33 @@ seconds if they're not hooked immediately. Follow these rules:
   possible instead of vague claims.
 - End on a payoff, a twist, or a thought that lingers -- not a flat
   restatement of the topic.
-- For each segment's image_query, describe a SPECIFIC, vivid, concrete
-  visual that matches that exact sentence -- not the general topic. A
-  generic query like "ocean water" returns generic stock photos. A
-  specific query like "diver flashlight dark cave" returns something with
-  actual visual interest. Think like a photo editor choosing an image for
-  that exact moment, not a librarian tagging the general subject.
+- For each segment's image_query, write a SPECIFIC stock-VIDEO search
+  query (3-6 concrete words) that a Pexels video search can match -- not
+  abstract concepts. Prefer filmable scenes with clear subjects and
+  action (e.g. "crowded subway platform rush", "scientist lab microscope
+  closeup") over vague themes ("emotion", "future", "technology").
 
 Return JSON in this exact shape:
 {{
   "title": "...",
   "description": "...",
   "segments": [
-    {{"narration": "one or two sentences", "image_query": "specific vivid visual, 3-6 words"}},
+    {{"narration": "one or two sentences", "image_query": "specific vivid video search, 3-6 words"}},
     ... (6 to 10 segments total)
   ]
 }}
 
 JSON rules: use double quotes only, no trailing commas, no comments,
 and escape any double quotes inside string values as \\". """
+
+
+def _format_research_block(research_context: str | None) -> str:
+    if not research_context or not research_context.strip():
+        return ""
+    return (
+        "\nUse this live research material when choosing the angle and details:\n"
+        f"{research_context.strip()}\n"
+    )
 
 
 def _repair_json(blob: str) -> str:
@@ -126,9 +137,21 @@ def _extract_json(text: str | None) -> dict:
         ) from None
 
 
-def _generate_with_gemini(api_key: str, topic: str, attempts: int = 3) -> dict:
+def _build_prompt(topic: str, research_context: str | None = None) -> str:
+    return PROMPT_TEMPLATE.format(
+        topic=topic,
+        research_block=_format_research_block(research_context),
+    )
+
+
+def _generate_with_gemini(
+    api_key: str,
+    topic: str,
+    research_context: str | None = None,
+    attempts: int = 3,
+) -> dict:
     client = genai.Client(api_key=api_key)
-    prompt = PROMPT_TEMPLATE.format(topic=topic)
+    prompt = _build_prompt(topic, research_context)
 
     last_error = None
     for attempt in range(1, attempts + 1):
@@ -194,9 +217,16 @@ def _hf_chat_json(client: InferenceClient, prompt: str) -> str:
     return completion.choices[0].message.content
 
 
-def _generate_with_huggingface(hf_token: str, topic: str) -> dict:
+def _generate_with_huggingface(
+    hf_token: str,
+    topic: str,
+    research_context: str | None = None,
+) -> dict:
     client = InferenceClient(api_key=hf_token)
-    prompt = PROMPT_TEMPLATE.format(topic=topic) + "\n\nReturn ONLY the JSON object, no other text."
+    prompt = (
+        _build_prompt(topic, research_context)
+        + "\n\nReturn ONLY the JSON object, no other text."
+    )
 
     last_error = None
     for attempt in range(1, MAX_HF_JSON_RETRIES + 1):
@@ -214,25 +244,39 @@ def _generate_with_huggingface(hf_token: str, topic: str) -> dict:
     ) from last_error
 
 
-def _generate_once(gemini_api_key: str, topic: str, hf_token: str | None) -> dict:
+def _generate_once(
+    gemini_api_key: str,
+    topic: str,
+    hf_token: str | None,
+    research_context: str | None = None,
+) -> dict:
     try:
-        return _generate_with_gemini(gemini_api_key, topic)
+        return _generate_with_gemini(gemini_api_key, topic, research_context)
     except Exception as e:
         if not hf_token:
             raise
         print(f"Gemini unavailable after retries ({e}). Falling back to Hugging Face.")
-        return _generate_with_huggingface(hf_token, topic)
+        return _generate_with_huggingface(hf_token, topic, research_context)
 
 
-def generate_script(gemini_api_key: str, topic: str, hf_token: str | None = None) -> dict:
+def generate_script(
+    gemini_api_key: str,
+    topic: str,
+    hf_token: str | None = None,
+    research_context: str | None = None,
+) -> dict:
     """Generates a script, then runs it through the quality gate
     (pipeline/quality.py). Below-threshold scripts get regenerated up to
     MAX_QUALITY_RETRIES times before the run fails outright -- better to
-    fail loudly than render a weak video."""
+    fail loudly than render a weak video.
+
+    research_context is the Reddit + grounded-search brief from
+    pick_todays_topic(); when provided, the model is instructed to ground
+    the script in that live material."""
     last_score, last_breakdown, last_issues = None, None, None
 
     for attempt in range(1, MAX_QUALITY_RETRIES + 1):
-        script = _generate_once(gemini_api_key, topic, hf_token)
+        script = _generate_once(gemini_api_key, topic, hf_token, research_context)
         score, breakdown, issues = score_script(script)
         print(f"Quality gate attempt {attempt}/{MAX_QUALITY_RETRIES}: {score}/100 {breakdown}")
 

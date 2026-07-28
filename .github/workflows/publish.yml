@@ -3,20 +3,17 @@ name: Daily video draft
 on:
   schedule:
     - cron: '0 14 * * *'   # 14:00 UTC daily — adjust to taste
-  workflow_dispatch: {}     # manual "run now" button in the Actions tab
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: 'Optional topic override (leave blank to research trending)'
+        required: false
+        default: ''
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    strategy:
-      fail-fast: false   # one topic failing shouldn't cancel the others
-      matrix:
-        topic:
-          - "a surprising fact about the deep ocean"
-          - "the history of a common everyday object"
-          - "a weird quirk of human psychology"
-          # add/remove lines here — one line = one video, all rendered in parallel
     steps:
       - uses: actions/checkout@v4
         id: checkout
@@ -58,14 +55,15 @@ jobs:
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          VIDEO_TOPIC: ${{ matrix.topic }}
+          # Blank on schedule / blank dispatch input => trending research in main.py
+          VIDEO_TOPIC: ${{ inputs.topic }}
           HF_HOME: ${{ github.workspace }}/hf_cache
 
       - name: Notify Discord on failure
         if: failure()
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TOPIC: ${{ matrix.topic }}
+          TOPIC: ${{ inputs.topic || 'trending research' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
