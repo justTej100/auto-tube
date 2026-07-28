@@ -92,12 +92,18 @@ jobs:
 
           echo "::error::Pipeline failed at step: ${FAILED_STEP} (topic: ${TOPIC})"
 
-          # Grab the tail of the actual error output, if the pipeline got
-          # far enough to produce a log. Messages over Discord's 2000-char
-          # limit are split and sent as multiple webhook posts.
+          # Prefer just the Python traceback from the pipeline log. Messages
+          # over Discord's 2000-char limit are split across webhook posts.
           ERROR_TAIL="(no pipeline_output.log -- failure happened before the pipeline ran)"
           if [ -f pipeline_output.log ]; then
-            ERROR_TAIL=$(tail -n 80 pipeline_output.log)
+            ERROR_TAIL=$(awk '
+              /^Traceback \(most recent call last\):/ { capturing = 1; buf = $0; next }
+              capturing { buf = buf ORS $0 }
+              END { if (buf != "") print buf }
+            ' pipeline_output.log)
+            if [ -z "$ERROR_TAIL" ]; then
+              ERROR_TAIL=$(tail -n 30 pipeline_output.log)
+            fi
           fi
 
           CONTENT=$(printf '❌ CI failed at step: **%s**\nTopic: %s\nRun: %s\n```\n%s\n```' \
