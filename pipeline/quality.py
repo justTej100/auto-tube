@@ -66,11 +66,11 @@ def score_slop_penalty(text: str) -> tuple[float, list[str]]:
     if ai_found:
         issues.append(f"AI patterns: {', '.join(ai_found[:3])}")
 
-    em_dash_count = text.count("—")
-    word_count = len(text.split())
-    if em_dash_count > word_count / 200:
-        score -= 5
-        issues.append("Excessive em dash usage")
+    em_dash_count = text.count("—") + text.count("–") + len(re.findall(r"\s+-\s+", text))
+    if em_dash_count > 0:
+        # Any dash-as-pause is a Shorts caption smell; penalize harder.
+        score -= min(20, 5 + em_dash_count * 3)
+        issues.append("Dash pauses in narration (use commas/periods instead)")
 
     corporate_patterns = [
         r"I'm excited to share", r"it is important to note", r"in order to",

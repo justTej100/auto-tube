@@ -65,6 +65,9 @@ seconds if they're not hooked immediately. Follow these rules:
   robotic uniform pacing where every segment is the same length and shape.
 - Write like a person talking to a friend, not a Wikipedia summary. Use
   natural spoken phrasing, not formal written English.
+- Never use em dashes, en dashes, or hyphen-as-pause in narration
+  (no "—", "–", or "word - word"). Use commas, periods, or short new
+  sentences instead. Captions are burned on screen for TikTok / Shorts.
 - Avoid AI-writing tells: no "leverage", "delve", "landscape", "robust",
   "testament", "pivotal", "seamless", or similar corporate/AI vocabulary.
   No "it's not just X, it's Y" constructions. No vague "experts believe"
@@ -75,9 +78,10 @@ seconds if they're not hooked immediately. Follow these rules:
   restatement of the topic.
 - For each segment's image_query, write a SPECIFIC stock-VIDEO search
   query (3-6 concrete words) that a Pexels video search can match -- not
-  abstract concepts. Prefer filmable scenes with clear subjects and
-  action (e.g. "crowded subway platform rush", "scientist lab microscope
-  closeup") over vague themes ("emotion", "future", "technology").
+  abstract concepts. Prefer filmable vertical/portrait scenes with clear
+  subjects and action (e.g. "crowded subway platform rush", "scientist
+  lab microscope closeup") over vague themes ("emotion", "future",
+  "technology").
 
 Return JSON in this exact shape:
 {{
