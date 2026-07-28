@@ -1,8 +1,12 @@
 name: Daily video draft
 
 on:
+  # One video per run, three runs/day. Times are America/Denver (UTC-6):
+  # 5am, 1pm, 8pm local -> 11:00, 19:00, 02:00 UTC.
   schedule:
-    - cron: '0 14 * * *'   # 14:00 UTC daily — adjust to taste
+    - cron: '0 11 * * *'   # 5:00 AM Denver
+    - cron: '0 19 * * *'   # 1:00 PM Denver
+    - cron: '0 2 * * *'    # 8:00 PM Denver
   workflow_dispatch:
     inputs:
       topic:
