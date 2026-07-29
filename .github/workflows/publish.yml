@@ -27,14 +27,16 @@ jobs:
         with:
           python-version: '3.11'   # chatterbox-tts requires 3.11 specifically
 
-      - name: Cache Chatterbox model
+      - name: Cache voice + caption models
         id: cache-chatterbox-model
         uses: actions/cache@v4
         with:
           path: hf_cache/
-          # Bump the "v1" suffix if you ever swap models -- invalidates
-          # the old cache instead of silently reusing it.
-          key: chatterbox-turbo-model-v1
+          # Holds both Chatterbox-Turbo (voice.py) and faster-whisper
+          # (assemble.py) downloads -- HF_HOME points both at this same
+          # dir. Bump this suffix again any time either model changes,
+          # to force a fresh combined cache instead of reusing a stale one.
+          key: chatterbox-whisper-models-v1
 
       - name: Install ffmpeg
         id: install-ffmpeg
@@ -86,7 +88,7 @@ jobs:
           elif [ "${{ steps.setup-python.outcome }}" = "failure" ]; then
             FAILED_STEP="Setup Python"
           elif [ "${{ steps.cache-chatterbox-model.outcome }}" = "failure" ]; then
-            FAILED_STEP="Cache Chatterbox model"
+            FAILED_STEP="Cache voice + caption models"
           elif [ "${{ steps.install-ffmpeg.outcome }}" = "failure" ]; then
             FAILED_STEP="Install ffmpeg"
           elif [ "${{ steps.install-deps.outcome }}" = "failure" ]; then
