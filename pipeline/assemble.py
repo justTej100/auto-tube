@@ -13,7 +13,7 @@ VIDEO_HEIGHT = 1920
 # Fast-caption tuning. 2 words/chunk is the TikTok/Shorts standard --
 # enough to read at a glance, fast enough that it never reads like a
 # paragraph. Bump to 3 if captions feel too flickery for slower narration.
-WORDS_PER_CAPTION = 2
+WORDS_PER_CAPTION = 3
 
 # tiny.en is the fastest faster-whisper model and this is a solved task
 # (clean single-speaker TTS audio, no background noise, no accents to

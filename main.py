@@ -1,102 +1,42 @@
-from datetime import date
-from pathlib import Path
+"""Top-level entry point: checks RankedbyHetti's intake folder first (if
+that channel is configured), then always runs NewNova. RankedbyHetti
+failures are logged and reported to Discord but never block NewNova --
+NewNova is the pipeline that has to keep working every single run without
+anyone touching it, per its design goal."""
 
-from pipeline.assemble import build_segment_clip, concat_clips, mix_background_music
-from pipeline.config import Config
-from pipeline.drive_delivery import upload_to_drive
-from pipeline.discord_notify import send_review_notification
-from pipeline.script_gen import generate_script
-from pipeline.trending import pick_todays_topic
-from pipeline.visuals import fetch_video
-from pipeline.voice import synthesize_speech
+from core.config import load_hetti_config, load_nova_config, load_shared_config
+from core.discord_notify import send_message
 
-WORKDIR = Path("build")
+from pipelines.newnova import main as newnova
+from pipelines.rankedbyhetti import main as rankedbyhetti
 
 
 def main():
-    cfg = Config()
-    WORKDIR.mkdir(exist_ok=True)
+    shared = load_shared_config()
+    hetti_cfg = load_hetti_config()
 
-    research_context = None
-    topic_picker = None
-    research_sources: list[str] = []
-
-    if cfg.video_topic:
-        topic = cfg.video_topic
-        print(f"Using provided topic: {topic}")
+    if hetti_cfg:
+        print("Checking RankedbyHetti intake folder...")
+        try:
+            result = rankedbyhetti.run(shared, hetti_cfg)
+            if result is None:
+                print("No RankedbyHetti folder ready this run.")
+        except Exception as e:
+            print(f"RankedbyHetti stage failed ({e}) -- continuing to NewNova regardless.")
+            try:
+                send_message(
+                    hetti_cfg.discord_webhook_url,
+                    f"⚠️ RankedbyHetti run failed: {e}",
+                    username="rankedbyhetti",
+                )
+            except Exception as notify_err:
+                print(f"Also failed to notify Discord about the RankedbyHetti failure: {notify_err}")
     else:
-        print(
-            "Researching today's trending topic "
-            "(Gemini grounded search first, then HN / Wikipedia / RSS / "
-            "YouTube / Reddit)..."
-        )
-        research = pick_todays_topic(
-            cfg.gemini_api_key,
-            discord_webhook_url=cfg.discord_webhook_url,
-            hf_token=cfg.hf_token,
-            youtube_api_key=cfg.youtube_api_key,
-            reddit_client_id=cfg.reddit_client_id,
-            reddit_client_secret=cfg.reddit_client_secret,
-        )
-        topic = research.topic
-        research_context = research.research_context
-        topic_picker = research.topic_picker
-        research_sources = list(research.used_sources)
-        if research.skipped_sources:
-            print(f"Skipped sources: {', '.join(research.skipped_sources)}")
-        print(f"Topic selected via {topic_picker}: {topic}")
+        print("RankedbyHetti not configured -- skipping straight to NewNova.")
 
-    script_result = generate_script(
-        cfg.gemini_api_key,
-        topic,
-        cfg.hf_token,
-        research_context=research_context,
-    )
-    script = script_result.script
-    print(f"Script generated via {script_result.provider}")
-
-    clip_paths = []
-    for i, seg in enumerate(script["segments"]):
-        print(f"Segment {i}: {seg['narration'][:60]}...")
-        audio_path = WORKDIR / f"seg_{i}.wav"
-        video_path = WORKDIR / f"seg_{i}_source.mp4"
-        clip_path = WORKDIR / f"seg_{i}.mp4"
-
-        synthesize_speech(seg["narration"], audio_path)
-        fetch_video(cfg.pexels_api_key, seg["image_query"], video_path)
-        build_segment_clip(video_path, audio_path, clip_path, seg["narration"], WORKDIR)
-        clip_paths.append(clip_path)
-
-    final_path = WORKDIR / "final.mp4"
-    concat_clips(clip_paths, WORKDIR, final_path)
-    print(f"Video assembled: {final_path}")
-
-    music_path = Path("assets/background_music.mp3")
-    if music_path.exists():
-        mixed_path = WORKDIR / "final_with_music.mp4"
-        mix_background_music(final_path, music_path, mixed_path)
-        final_path = mixed_path
-        print("Background music mixed in.")
-    else:
-        print("No assets/background_music.mp3 found -- skipping music (optional).")
-
-    filename = f"{date.today().isoformat()} - {script['title']}.mp4"
-    drive_link = upload_to_drive(
-        cfg.google_client_id, cfg.google_client_secret, cfg.google_refresh_token,
-        cfg.drive_folder_id, final_path, filename,
-    )
-    print(f"Uploaded to Drive: {drive_link}")
-
-    send_review_notification(
-        cfg.discord_webhook_url,
-        script["title"],
-        drive_link,
-        topic=topic,
-        topic_picker=topic_picker,
-        script_provider=script_result.provider,
-        research_sources=research_sources or None,
-    )
-    print("Discord notification sent.")
+    nova_cfg = load_nova_config()
+    print("Running NewNova...")
+    newnova.run(shared, nova_cfg)
 
 
 if __name__ == "__main__":
