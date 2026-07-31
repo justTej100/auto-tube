@@ -298,28 +298,7 @@ class Trending:
             print(f"{name} failed ({e}) -- skipping.")
             return SourceAttempt(name=name, skipped=True, reason=str(e))
 
-    def fetch_reddit_json(self) -> SourceAttempt:
-        name = "Reddit .json"
-        try:
-            r = requests.get(
-                "https://www.reddit.com/r/all/top.json",
-                params={"t": "day", "limit": 10},
-                headers=headers(),
-                timeout=HTTP_TIMEOUT,
-            )
-            r.raise_for_status()
-            posts = r.json()["data"]["children"]
-            titles = [
-                p["data"]["title"]
-                for p in posts
-                if not p["data"].get("over_18") and p["data"].get("title")
-            ]
-            if not titles:
-                raise RuntimeError("no Reddit .json titles")
-            return SourceAttempt(name=name, lines=titles)
-        except Exception as e:
-            print(f"{name} failed ({e}) -- skipping.")
-            return SourceAttempt(name=name, skipped=True, reason=str(e))
+    
 
     def fetch_reddit_oauth(self) -> SourceAttempt:
         name = "Reddit OAuth"
@@ -413,13 +392,12 @@ class Trending:
 
         # Gemini first, then the rest in a stable order.
         attempts: list[SourceAttempt] = [
+            self.fetch_reddit_oauth(),
+            self.fetch_youtube_popular(),
             self.fetch_gemini_grounded(),
             self.fetch_hacker_news(),
             self.fetch_wikipedia_current(),
             self.fetch_rss_feeds(),
-            self.fetch_youtube_popular(),
-            self.fetch_reddit_json(),
-            self.fetch_reddit_oauth(),
         ]
 
         successful = [a for a in attempts if not a.skipped and a.lines]
