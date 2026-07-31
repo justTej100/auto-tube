@@ -23,7 +23,8 @@ WHISPER_MODEL_SIZE = "tiny.en"
 # resolution. Clear of TikTok/Shorts UI chrome.
 CAPTION_MARGIN_V = int(VIDEO_HEIGHT * (1 - 0.62))
 
-ASS_HEADER = """[Script Info]
+# Caption script template (SubStation format fired through ffmpeg's subtitles filter).
+CAPTION_HEADER = """[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
 PlayResY: {height}
@@ -64,7 +65,8 @@ class Assemble:
         text = re.sub(r"[ \t]{2,}", " ", text)
         return text.strip(" ,")
 
-    def format_ass_time(self, seconds: float) -> str:
+    def format_caption_time(self, seconds: float) -> str:
+        """Caption timestamps are H:MM:SS.CS (centiseconds, 2 digits)."""
         seconds = max(0.0, seconds)
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
@@ -75,7 +77,9 @@ class Assemble:
             secs = int(secs) + 1
         return f"{hours}:{minutes:02d}:{int(secs):02d}.{centis:02d}"
 
-    def escape_ass_text(self, text: str) -> str:
+    def escape_caption_text(self, text: str) -> str:
+        # { and } are override-tag delimiters -- escape any literal braces
+        # so they can't be misread as styling commands.
         return text.replace("{", r"\{").replace("}", r"\}")
 
     def escape_for_filtergraph(self, path: Path) -> str:
@@ -98,7 +102,7 @@ class Assemble:
             raise RuntimeError("faster-whisper returned no words for this clip")
         return words
 
-    def write_caption_ass_aligned(
+    def write_caption_aligned(
         self,
         words: list[tuple[str, float, float]],
         duration: float,
@@ -106,7 +110,7 @@ class Assemble:
         chunk_size: int = WORDS_PER_CAPTION,
     ) -> None:
         lines = [
-            ASS_HEADER.format(
+            CAPTION_HEADER.format(
                 width=VIDEO_WIDTH, height=VIDEO_HEIGHT, margin_v=CAPTION_MARGIN_V
             )
         ]
@@ -116,14 +120,15 @@ class Assemble:
             text = " ".join(w[0] for w in group)
             start = group[0][1]
             end = words[i + chunk_size][1] if i + chunk_size < len(words) else duration
+            # Must match Events Format: Layer, Start, End, Style, Text
             lines.append(
-                f"Dialogue: 0,{self.format_ass_time(start)},{self.format_ass_time(end)},"
-                f"Caption,,0,0,0,,{self.escape_ass_text(text)}\n"
+                f"Dialogue: 0,{self.format_caption_time(start)},{self.format_caption_time(end)},"
+                f"Caption,{self.escape_caption_text(text)}\n"
             )
 
         out_path.write_text("".join(lines))
 
-    def write_caption_ass_estimated(
+    def write_caption_estimated(
         self,
         text: str,
         duration: float,
@@ -142,7 +147,7 @@ class Assemble:
         total_weight = sum(weights)
 
         lines = [
-            ASS_HEADER.format(
+            CAPTION_HEADER.format(
                 width=VIDEO_WIDTH, height=VIDEO_HEIGHT, margin_v=CAPTION_MARGIN_V
             )
         ]
@@ -151,9 +156,10 @@ class Assemble:
         for chunk, weight in zip(chunks, weights):
             chunk_dur = duration * (weight / total_weight)
             start, end = t, t + chunk_dur
+            # Must match Events Format: Layer, Start, End, Style, Text
             lines.append(
-                f"Dialogue: 0,{self.format_ass_time(start)},{self.format_ass_time(end)},"
-                f"Caption,,0,0,0,,{self.escape_ass_text(chunk)}\n"
+                f"Dialogue: 0,{self.format_caption_time(start)},{self.format_caption_time(end)},"
+                f"Caption,{self.escape_caption_text(chunk)}\n"
             )
             t = end
 
@@ -169,6 +175,8 @@ class Assemble:
     ) -> None:
         duration = self.voice.wav_duration_seconds(audio_path)
 
+        # Temp caption script for ffmpeg's subtitles filter. Extension must
+        # stay a format ffmpeg recognizes (.ass); our code calls these captions.
         caption_path = self.workdir / f"{out_path.stem}_caption.ass"
         try:
             words = (
@@ -176,12 +184,12 @@ class Assemble:
                 if precomputed_words is not None
                 else self.transcribe_words(audio_path)
             )
-            self.write_caption_ass_aligned(words, duration, caption_path)
+            self.write_caption_aligned(words, duration, caption_path)
         except Exception as e:
             print(
                 f"Whisper caption alignment failed ({e}) -- falling back to estimated timing."
             )
-            self.write_caption_ass_estimated(caption_text, duration, caption_path)
+            self.write_caption_estimated(caption_text, duration, caption_path)
 
         caption_filter_path = self.escape_for_filtergraph(caption_path)
 
