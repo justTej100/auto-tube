@@ -129,6 +129,12 @@ Fallback when Gemini is down for script writing or topic picking.
 Used for the “YouTube most popular” research source.
 
 #### `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET`
+1. Log into Reddit → [prefs/apps](https://www.reddit.com/prefs/apps)
+2. Click **create another app…**
+3. Type: **script**, name/description anything, redirect uri `http://localhost:8080`
+4. After create: the string under the app name is the **client id**; the **secret** is labeled secret
+5. Paste both as secrets
+
 Used for authenticated Reddit trending (anonymous `.json` is often blocked from GitHub Actions).
 
 ---
