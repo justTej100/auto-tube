@@ -1,15 +1,13 @@
 """Trending-topic research from multiple live sources, encapsulated in a
 `Trending` object.
 
-Order (Gemini grounded search always first):
-  1. Gemini Google Search grounding
-  2. Hacker News
-  3. Wikipedia featured/current news
-  4. RSS (Google News, BBC, NPR)
-  5. YouTube most popular
-  6. Reddit anonymous .json
-  7. Reddit OAuth (registered app)
+Fetch / preference order:
+  1. Reddit OAuth
+  2. YouTube most popular
+  3. News (RSS, Wikipedia current events, Hacker News)
+  4. Gemini Google Search grounding
 
+When Reddit returns posts, topic picking MUST choose one Reddit story.
 Each source fails soft -- skipped sources are Discord-notified.
 If every source fails, research() raises. Topic picking is a separate
 plain Gemini call (no grounding), with optional HF fallback.
@@ -48,6 +46,8 @@ class TopicResearch:
     used_sources: tuple[str, ...] = ()
     # "Gemini" or "Hugging Face" — which model picked the topic.
     topic_picker: str = "Gemini"
+    # True when Reddit had posts and the topic was chosen from them.
+    from_reddit: bool = False
 
 
 @dataclass
@@ -56,6 +56,8 @@ class SourceAttempt:
     lines: list[str] = field(default_factory=list)
     skipped: bool = False
     reason: str = ""
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +74,7 @@ def as_bullets(lines: list[str], limit: int = 10) -> str:
     return "\n".join(f"- {line}" for line in lines[:limit])
 
 
+# this should be in the class
 def parse_rss_titles(xml_bytes: bytes, limit: int = 8) -> list[str]:
     root = ET.fromstring(xml_bytes)
     titles: list[str] = []
@@ -122,6 +125,8 @@ class Trending:
         reddit_client_id: str | None = None,
         reddit_client_secret: str | None = None,
     ) -> None:
+
+
         self.gemini_api_key = gemini_api_key
         self.discord = discord
         self.hf_token = hf_token
@@ -150,14 +155,17 @@ class Trending:
             text = (response.text or "").strip()
             if not text:
                 raise RuntimeError("empty grounded response")
+            
             lines = [ln.lstrip("-•* ").strip() for ln in text.splitlines() if ln.strip()]
             return SourceAttempt(name=name, lines=lines)
+        
         except Exception as e:
             print(f"{name} failed ({e}) -- skipping.")
             return SourceAttempt(name=name, skipped=True, reason=str(e))
 
     def fetch_hacker_news(self) -> SourceAttempt:
         name = "Hacker News"
+        
         try:
             ids = requests.get(
                 "https://hacker-news.firebaseio.com/v0/topstories.json",
@@ -341,24 +349,38 @@ class Trending:
 
     # -- Topic picking ----------------------------------------------------
 
-    def pick_topic_with_gemini(self, research_context: str) -> str:
+    def topic_pick_prompt(self, research_context: str, *, prefer_reddit: bool) -> str:
+        if prefer_reddit:
+            return (
+                f"{research_context}\n\n"
+                "A Reddit section is present above. You MUST pick ONE specific Reddit "
+                "post from that section and turn it into the topic for a short narrative "
+                "YouTube video ABOUT THAT REDDIT STORY -- what the post is about, what "
+                "happened, why people cared. Do not pick YouTube or news while Reddit "
+                "has usable posts. Describe the Reddit story in one sentence, specific "
+                "enough to write a script from. Reply with ONLY that one sentence."
+            )
+        return (
+            f"{research_context}\n\n"
+            "Pick the SINGLE most compelling, story-worthy topic from the above "
+            "for a short narrative YouTube video. Priority order: YouTube first, "
+            "then news (RSS / Wikipedia / Hacker News), then anything else. "
+            "Describe it in one sentence, specific enough to write a script from -- "
+            "not a vague category. Reply with ONLY that one sentence."
+        )
+
+    def pick_topic_with_gemini(self, research_context: str, *, prefer_reddit: bool) -> str:
         client = genai.Client(api_key=self.gemini_api_key)
         response = client.models.generate_content(
             model="gemini-3-flash-preview",
-            contents=(
-                f"{research_context}\n\n"
-                "Pick the SINGLE most compelling, story-worthy topic from the above "
-                "for a short narrative YouTube video. Describe it in one sentence, "
-                "specific enough to write a script from -- not a vague category. "
-                "Reply with ONLY that one sentence."
-            ),
+            contents=self.topic_pick_prompt(research_context, prefer_reddit=prefer_reddit),
         )
         topic = (response.text or "").strip()
         if not topic:
             raise RuntimeError("Gemini topic picker returned empty text")
         return topic
 
-    def pick_topic_with_huggingface(self, research_context: str) -> str:
+    def pick_topic_with_huggingface(self, research_context: str, *, prefer_reddit: bool) -> str:
         client = InferenceClient(api_key=self.hf_token)
         completion = client.chat.completions.create(
             model="meta-llama/Llama-3.1-8B-Instruct",
@@ -369,10 +391,8 @@ class Trending:
                 },
                 {
                     "role": "user",
-                    "content": (
-                        f"{research_context}\n\n"
-                        "Pick the SINGLE most compelling, story-worthy topic from the above "
-                        "for a short narrative YouTube video. One sentence only."
+                    "content": self.topic_pick_prompt(
+                        research_context, prefer_reddit=prefer_reddit
                     ),
                 },
             ],
@@ -387,17 +407,17 @@ class Trending:
     # -- Orchestration ------------------------------------------------------
 
     def research(self) -> TopicResearch:
-        """Runs every research source (Gemini grounded search first). Skipped
-        sources are reported to Discord. Raises only if nothing usable remains."""
+        """Runs every research source in preference order. Skipped sources are
+        reported to Discord. Raises only if nothing usable remains."""
 
-        # Gemini first, then the rest in a stable order.
+        # Reddit → YouTube → news → Gemini grounded.
         attempts: list[SourceAttempt] = [
             self.fetch_reddit_oauth(),
             self.fetch_youtube_popular(),
-            self.fetch_gemini_grounded(),
-            self.fetch_hacker_news(),
-            self.fetch_wikipedia_current(),
             self.fetch_rss_feeds(),
+            self.fetch_wikipedia_current(),
+            self.fetch_hacker_news(),
+            self.fetch_gemini_grounded(),
         ]
 
         successful = [a for a in attempts if not a.skipped and a.lines]
@@ -419,6 +439,7 @@ class Trending:
                 "Set VIDEO_TOPIC to override, or retry later."
             )
 
+        prefer_reddit = any(a.name.startswith("Reddit") for a in successful)
         sections = [f"### {a.name}\n{as_bullets(a.lines)}" for a in successful]
         research_context = (
             f"Live research gathered {date.today().isoformat()} UTC:\n\n"
@@ -426,13 +447,17 @@ class Trending:
         )
 
         try:
-            topic = self.pick_topic_with_gemini(research_context)
+            topic = self.pick_topic_with_gemini(
+                research_context, prefer_reddit=prefer_reddit
+            )
             topic_picker = "Gemini"
         except Exception as e:
             if not self.hf_token:
                 raise RuntimeError(f"Topic picking failed and no HF_TOKEN set: {e}") from e
             print(f"Gemini topic pick failed ({e}). Falling back to Hugging Face.")
-            topic = self.pick_topic_with_huggingface(research_context)
+            topic = self.pick_topic_with_huggingface(
+                research_context, prefer_reddit=prefer_reddit
+            )
             topic_picker = "Hugging Face"
 
         return TopicResearch(
@@ -441,4 +466,5 @@ class Trending:
             skipped_sources=tuple(a.name for a in skipped),
             used_sources=tuple(a.name for a in successful),
             topic_picker=topic_picker,
+            from_reddit=prefer_reddit,
         )

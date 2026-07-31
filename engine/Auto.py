@@ -46,6 +46,7 @@ SCRIPT_JSON_SCHEMA = {
 
 SCRIPT_PROMPT_TEMPLATE = """Write a script for a short, punchy YouTube video about: {topic}
 {research_block}
+{reddit_story_block}
 You're writing for a fast-scrolling audience who will swipe away in 2
 seconds if they're not hooked immediately. Follow these rules:
 
@@ -92,6 +93,14 @@ JSON rules: use double quotes only, no trailing commas, no comments,
 and escape any double quotes inside string values as \\". """
 
 
+REDDIT_STORY_BLOCK = """
+This topic is a Reddit story. Write the video as a narrative ABOUT that
+Reddit post -- what the post says happened, why it blew up, the human
+angle -- not a generic essay on a loosely related theme. Stay faithful
+to the Reddit material in the research above.
+"""
+
+
 @dataclass
 class AutoContext:
     """What prepare() gathers before scripting: the topic plus whatever
@@ -101,6 +110,7 @@ class AutoContext:
     topic_picker: str | None
     research_sources: tuple[str, ...]
     script_provider: str | None = None
+    from_reddit: bool = False
 
 
 class Auto(Channel):
@@ -166,22 +176,26 @@ class Auto(Channel):
 
         print(
             "Researching today's trending topic "
-            "(Gemini grounded search first, then HN / Wikipedia / RSS / "
-            "YouTube / Reddit)..."
+            "(Reddit first, then YouTube, news, Gemini grounded)..."
         )
         result = self.trending.research()
         print(f"Topic selected via {result.topic_picker}: {result.topic}")
+        if result.from_reddit:
+            print("Topic locked to a Reddit story.")
         return AutoContext(
             topic=result.topic,
             research_context=result.research_context,
             topic_picker=result.topic_picker,
             research_sources=result.used_sources,
+            from_reddit=result.from_reddit,
         )
 
     def generate_script(self, context: AutoContext) -> dict:
         def once() -> dict:
             script, provider = self.generate_script_once(
-                context.topic, context.research_context
+                context.topic,
+                context.research_context,
+                from_reddit=context.from_reddit,
             )
             context.script_provider = provider
             return script
@@ -249,10 +263,17 @@ class Auto(Channel):
             f"{research_context.strip()}\n"
         )
 
-    def build_script_prompt(self, topic: str, research_context: str | None) -> str:
+    def build_script_prompt(
+        self,
+        topic: str,
+        research_context: str | None,
+        *,
+        from_reddit: bool = False,
+    ) -> str:
         return SCRIPT_PROMPT_TEMPLATE.format(
             topic=topic,
             research_block=self.format_research_block(research_context),
+            reddit_story_block=REDDIT_STORY_BLOCK if from_reddit else "",
         )
 
     def hf_chat_json(self, client: InferenceClient, prompt: str) -> str:
@@ -295,10 +316,16 @@ class Auto(Channel):
                 completion = client.chat.completions.create(**kwargs)
         return completion.choices[0].message.content
 
-    def generate_with_huggingface(self, topic: str, research_context: str | None) -> dict:
+    def generate_with_huggingface(
+        self,
+        topic: str,
+        research_context: str | None,
+        *,
+        from_reddit: bool = False,
+    ) -> dict:
         client = InferenceClient(api_key=self.hf_token)
         prompt = (
-            self.build_script_prompt(topic, research_context)
+            self.build_script_prompt(topic, research_context, from_reddit=from_reddit)
             + "\n\nReturn ONLY the JSON object, no other text."
         )
 
@@ -318,9 +345,15 @@ class Auto(Channel):
         ) from last_error
 
     def generate_script_once(
-        self, topic: str, research_context: str | None
+        self,
+        topic: str,
+        research_context: str | None,
+        *,
+        from_reddit: bool = False,
     ) -> tuple[dict, str]:
-        prompt = self.build_script_prompt(topic, research_context)
+        prompt = self.build_script_prompt(
+            topic, research_context, from_reddit=from_reddit
+        )
         try:
             script = self.call_gemini_json(prompt, attempts=3, retry_wait=10)
             return script, "Gemini"
@@ -328,7 +361,9 @@ class Auto(Channel):
             if not self.hf_token:
                 raise
             print(f"Gemini unavailable after retries ({e}). Falling back to Hugging Face.")
-            script = self.generate_with_huggingface(topic, research_context)
+            script = self.generate_with_huggingface(
+                topic, research_context, from_reddit=from_reddit
+            )
             return script, "Hugging Face"
 
     # =========================================================

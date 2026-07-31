@@ -126,6 +126,11 @@ Missing optional secrets just skip that source (Discord will say so). The run on
 Fallback when Gemini is down for script writing or topic picking.
 
 #### `YOUTUBE_API_KEY`
+1. In [Google Cloud Console](https://console.cloud.google.com/), same project as Drive is fine
+2. Enable **YouTube Data API v3**
+3. **Credentials → Create credentials → API key**
+4. Paste it as the secret
+
 Used for the “YouTube most popular” research source.
 
 #### `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET`
