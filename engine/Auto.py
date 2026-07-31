@@ -2,7 +2,7 @@
 given) topic, writes a freeform narrative script with Gemini + Hugging
 Face fallback, pulls Pexels stock footage per segment, assembles with
 background music, uploads, notifies. No human input needed once
-configured -- this is the pattern NewNova runs on."""
+configured."""
 
 from __future__ import annotations
 

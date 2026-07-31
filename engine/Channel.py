@@ -1,6 +1,5 @@
 """Base class for a channel's daily production run. Both Auto (fully
-autonomous, e.g. NewNova) and RankedNiche (human-curated countdown, e.g.
-RankedbyHetti) subclass this.
+autonomous) and RankedNiche (human-curated countdown) subclass this.
 
 run() is the template method: the sequence never changes, only what each
 hook does per channel. Shared services are composed onto every Channel:

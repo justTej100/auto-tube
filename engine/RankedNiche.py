@@ -3,7 +3,7 @@ person sources 5 real clips per topic and drops them (with a manifest
 describing each one) into a Drive folder-of-folders. This channel writes
 countdown narration grounded in that manifest, places sound effects, and
 assembles -- no stock footage search, no autonomous topic research. This
-is the pattern RankedbyHetti runs on.
+is the RankedNiche channel.
 
 Runs opportunistically: prepare() returns None (via run()'s short
 circuit) when no intake folder is ready yet, which is the normal state
