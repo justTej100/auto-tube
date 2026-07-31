@@ -24,8 +24,8 @@ class DiscordMessage:
 
 class DiscordNotifier:
     """Builds and sends Discord webhook messages. Channel-agnostic --
-    both pipelines pass their own webhook_url in, since NewNova and
-    RankedbyHetti post to different channels/webhooks."""
+    each channel passes its own webhook_url, since Auto and RankedNiche
+    post to different webhooks."""
 
     def __init__(
         self,
@@ -34,6 +34,7 @@ class DiscordNotifier:
         timeout: int = 30,
         session: Any = requests,
         max_content_length: int = SAFE_CONTENT_LIMIT,
+        default_username: str | None = None,
     ):
         if max_content_length > DISCORD_CONTENT_LIMIT:
             raise ValueError("max_content_length cannot exceed Discord's 2000 character limit")
@@ -42,6 +43,7 @@ class DiscordNotifier:
         self.timeout = timeout
         self.session = session
         self.max_content_length = max_content_length
+        self.default_username = default_username
 
     def send(self, message: DiscordMessage) -> None:
         resp = self.session.post(
@@ -60,6 +62,7 @@ class DiscordNotifier:
         topic_picker: str | None = None,
         script_provider: str | None = None,
         research_sources: Sequence[str] | None = None,
+        username: str | None = None,
     ) -> None:
         self.send(
             self.build_review_message(
@@ -69,6 +72,7 @@ class DiscordNotifier:
                 topic_picker=topic_picker,
                 script_provider=script_provider,
                 research_sources=research_sources,
+                username=username,
             )
         )
 
@@ -76,6 +80,14 @@ class DiscordNotifier:
         message = self.build_research_skip_message(skipped)
         if message:
             self.send(message)
+
+    def send_error(self, error: BaseException, *, username: str | None = None) -> None:
+        self.send(
+            DiscordMessage(
+                content=self.truncate(f"⚠️ Run failed: {error}"),
+                username=username or self.default_username,
+            )
+        )
 
     def build_review_message(
         self,
@@ -86,17 +98,15 @@ class DiscordNotifier:
         topic_picker: str | None = None,
         script_provider: str | None = None,
         research_sources: Sequence[str] | None = None,
+        username: str | None = None,
     ) -> DiscordMessage:
-        """Posts a review link plus which models/sources powered this run.
-        NewNova-flavored (topic_picker/research_sources are NewNova
-        concepts) -- RankedbyHetti sends its own plain message via
-        send_message() below instead of reusing this."""
+        """Posts a review link plus which models/sources powered this run."""
         lines = [f"🎬 New video ready for review: **{title}**", drive_link]
 
         if topic:
             lines.append(f"Topic: {topic}")
 
-        details = self._review_details(
+        details = self.review_details(
             topic=topic,
             topic_picker=topic_picker,
             script_provider=script_provider,
@@ -106,7 +116,10 @@ class DiscordNotifier:
             lines.append("")
             lines.extend(details)
 
-        return DiscordMessage(content=self._truncate("\n".join(lines)))
+        return DiscordMessage(
+            content=self.truncate("\n".join(lines)),
+            username=username or self.default_username,
+        )
 
     def build_research_skip_message(self, skipped: Sequence[str]) -> DiscordMessage | None:
         """Notifies Discord that one or more trending-research sources were
@@ -120,11 +133,11 @@ class DiscordNotifier:
             f"{body}"
         )
         return DiscordMessage(
-            content=self._truncate(content),
+            content=self.truncate(content),
             username="auto-tube research",
         )
 
-    def _review_details(
+    def review_details(
         self,
         *,
         topic: str | None,
@@ -143,7 +156,7 @@ class DiscordNotifier:
             details.append("Research: skipped (manual `VIDEO_TOPIC`)")
         return details
 
-    def _truncate(self, content: str) -> str:
+    def truncate(self, content: str) -> str:
         if len(content) <= self.max_content_length:
             return content
 
@@ -151,32 +164,7 @@ class DiscordNotifier:
         return content[:keep_chars] + TRUNCATION_SUFFIX
 
 
-def send_review_notification(
-    webhook_url: str,
-    title: str,
-    drive_link: str,
-    *,
-    topic: str | None = None,
-    topic_picker: str | None = None,
-    script_provider: str | None = None,
-    research_sources: Sequence[str] | None = None,
-) -> None:
-    DiscordNotifier(webhook_url).send_review(
-        title,
-        drive_link,
-        topic=topic,
-        topic_picker=topic_picker,
-        script_provider=script_provider,
-        research_sources=research_sources,
-    )
-
-
-def send_research_skip_notification(webhook_url: str, skipped: Sequence[str]) -> None:
-    DiscordNotifier(webhook_url).send_research_skip(skipped)
-
-
 def send_message(webhook_url: str, content: str, username: str | None = None) -> None:
-    """Plain free-text notification, no NewNova-specific field structure.
-    Used by RankedbyHetti's review notification and by the top-level
-    main.py for reporting a RankedbyHetti-stage failure."""
+    """Plain free-text notification for callers that don't own a Channel
+    (e.g. main.py reporting a RankedNiche-stage failure)."""
     DiscordNotifier(webhook_url).send(DiscordMessage(content=content, username=username))

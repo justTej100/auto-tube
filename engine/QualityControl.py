@@ -7,8 +7,8 @@ voice ("$47K", "Follow for more", "What's your take?") and don't belong in
 spoken video narration. slop_penalty, specificity, and length are
 genre-agnostic and transfer cleanly.
 
-Shared by both pipelines -- operates on any {"segments": [{"narration": ...}]}
-dict, which both NewNova's and RankedbyHetti's script schemas satisfy.
+Shared by every channel -- operates on any {"segments": [{"narration": ...}]}
+dict, which both Auto's and RankedNiche's script schemas satisfy.
 
 Pure regex/heuristic scoring, no LLM call -- free, no API cost.
 """
@@ -86,7 +86,7 @@ class QualityControl:
 
     # -- Individual scoring dimensions ---------------------------------
 
-    def _score_slop_penalty(self, text: str) -> tuple[float, list[str]]:
+    def score_slop_penalty(self, text: str) -> tuple[float, list[str]]:
         """0-100, higher = less AI slop."""
         score = 100
         issues = []
@@ -119,7 +119,7 @@ class QualityControl:
 
         return max(score, 0), issues
 
-    def _score_specificity(self, text: str) -> float:
+    def score_specificity(self, text: str) -> float:
         """0-100, higher = more concrete facts/numbers/named entities."""
         score = 0
         total_numbers = sum(
@@ -134,7 +134,7 @@ class QualityControl:
 
         return min(score, 100)
 
-    def _score_length(self, text: str) -> float:
+    def score_length(self, text: str) -> float:
         """0-100, higher = better fit for a short-video narration length."""
         char_count = len(text)
         if char_count < self.LENGTH_MIN:
@@ -153,9 +153,9 @@ class QualityControl:
         (weighted_total_0_100, per_dimension_scores, issues_list)."""
         full_text = " ".join(seg["narration"] for seg in script["segments"])
 
-        slop_score, slop_issues = self._score_slop_penalty(full_text)
-        specificity_score = self._score_specificity(full_text)
-        length_score = self._score_length(full_text)
+        slop_score, slop_issues = self.score_slop_penalty(full_text)
+        specificity_score = self.score_specificity(full_text)
+        length_score = self.score_length(full_text)
 
         breakdown = {
             "slop_penalty": round(slop_score, 1),

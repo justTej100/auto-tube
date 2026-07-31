@@ -4,7 +4,7 @@ from pathlib import Path
 
 from faster_whisper import WhisperModel
 
-from core.voice import wav_duration_seconds
+from engine.voice import wav_duration_seconds
 
 # TikTok / YouTube Shorts vertical frame.
 VIDEO_WIDTH = 1080
@@ -39,21 +39,21 @@ Style: Caption,DejaVu Sans,84,&H00FFFFFF,&H00000000,&H00000000,-1,0,1,6,0,2,40,4
 Format: Layer, Start, End, Style, Text
 """
 
-_whisper_model: WhisperModel | None = None
+whisper_model: WhisperModel | None = None
 
 
-def _get_whisper_model() -> WhisperModel:
+def get_whisper_model() -> WhisperModel:
     """Lazily loads faster-whisper once per process (mirrors the
     ensure_model_loaded() pattern in voice.py). Shared by both pipelines --
     NewNova uses it for captions only, RankedbyHetti reuses the same
     per-segment transcription for captions AND sound-effect timing."""
-    global _whisper_model
-    if _whisper_model is None:
-        _whisper_model = WhisperModel(WHISPER_MODEL_SIZE, device="cpu", compute_type="int8")
-    return _whisper_model
+    global whisper_model
+    if whisper_model is None:
+        whisper_model = WhisperModel(WHISPER_MODEL_SIZE, device="cpu", compute_type="int8")
+    return whisper_model
 
 
-def _clean_caption_text(text: str) -> str:
+def clean_caption_text(text: str) -> str:
     """Strip dash-style pauses (em/en/--/spaced hyphen) so burned-in
     captions read like spoken Shorts text, not AI prose. Only relevant to
     the estimated-timing fallback path -- whisper transcribes actual
@@ -66,7 +66,7 @@ def _clean_caption_text(text: str) -> str:
     return text.strip(" ,")
 
 
-def _format_ass_time(seconds: float) -> str:
+def format_ass_time(seconds: float) -> str:
     """ASS timestamps are H:MM:SS.CS (centiseconds, 2 digits)."""
     seconds = max(0.0, seconds)
     hours = int(seconds // 3600)
@@ -79,7 +79,7 @@ def _format_ass_time(seconds: float) -> str:
     return f"{hours}:{minutes:02d}:{int(secs):02d}.{centis:02d}"
 
 
-def _escape_ass_text(text: str) -> str:
+def escape_ass_text(text: str) -> str:
     # { and } are ASS override-tag delimiters -- escape any literal braces
     # so they can't be misread as styling commands.
     return text.replace("{", r"\{").replace("}", r"\}")
@@ -92,7 +92,7 @@ def transcribe_words(audio_path: Path) -> list[tuple[str, float, float]]:
     reuses this exact same transcription for sound-effect placement,
     rather than transcribing the same audio twice. Raises on failure --
     callers decide whether to fall back."""
-    model = _get_whisper_model()
+    model = get_whisper_model()
     segments, _ = model.transcribe(
         str(audio_path),
         word_timestamps=True,
@@ -110,7 +110,7 @@ def transcribe_words(audio_path: Path) -> list[tuple[str, float, float]]:
     return words
 
 
-def _write_caption_ass_aligned(words: list[tuple[str, float, float]], duration: float,
+def write_caption_ass_aligned(words: list[tuple[str, float, float]], duration: float,
                                 out_path: Path, chunk_size: int = WORDS_PER_CAPTION):
     """Real-alignment path: groups whisper's words into chunk_size-word
     captions. Each chunk's end time is pinned to the *next* chunk's start
@@ -124,20 +124,20 @@ def _write_caption_ass_aligned(words: list[tuple[str, float, float]], duration: 
         start = group[0][1]
         end = words[i + chunk_size][1] if i + chunk_size < len(words) else duration
         lines.append(
-            f"Dialogue: 0,{_format_ass_time(start)},{_format_ass_time(end)},"
-            f"Caption,,0,0,0,,{_escape_ass_text(text)}\n"
+            f"Dialogue: 0,{format_ass_time(start)},{format_ass_time(end)},"
+            f"Caption,,0,0,0,,{escape_ass_text(text)}\n"
         )
 
     out_path.write_text("".join(lines))
 
 
-def _write_caption_ass_estimated(text: str, duration: float, out_path: Path,
+def write_caption_ass_estimated(text: str, duration: float, out_path: Path,
                                   chunk_size: int = WORDS_PER_CAPTION):
     """Fallback when whisper transcription fails for any reason -- estimates
     timing by splitting the known clip duration across word chunks,
     weighted by character count. Less accurate than real alignment but
     keeps the run alive rather than failing a whole video over captions."""
-    cleaned = _clean_caption_text(text)
+    cleaned = clean_caption_text(text)
     words = cleaned.split()
     chunks = [" ".join(words[i : i + chunk_size]) for i in range(0, len(words), chunk_size)]
     if not chunks:
@@ -153,15 +153,15 @@ def _write_caption_ass_estimated(text: str, duration: float, out_path: Path,
         chunk_dur = duration * (weight / total_weight)
         start, end = t, t + chunk_dur
         lines.append(
-            f"Dialogue: 0,{_format_ass_time(start)},{_format_ass_time(end)},"
-            f"Caption,,0,0,0,,{_escape_ass_text(chunk)}\n"
+            f"Dialogue: 0,{format_ass_time(start)},{format_ass_time(end)},"
+            f"Caption,,0,0,0,,{escape_ass_text(chunk)}\n"
         )
         t = end
 
     out_path.write_text("".join(lines))
 
 
-def _escape_for_filtergraph(path: Path) -> str:
+def escape_for_filtergraph(path: Path) -> str:
     """The subtitles filter takes its path as a filter option, where ':'
     is the option separator and '\\' is an escape char -- both need
     escaping even though the value is otherwise safe on Linux."""
@@ -186,12 +186,12 @@ def build_segment_clip(video_path: Path, audio_path: Path, out_path: Path,
     caption_path = workdir / f"{out_path.stem}_caption.ass"
     try:
         words = precomputed_words if precomputed_words is not None else transcribe_words(audio_path)
-        _write_caption_ass_aligned(words, duration, caption_path)
+        write_caption_ass_aligned(words, duration, caption_path)
     except Exception as e:
         print(f"Whisper caption alignment failed ({e}) -- falling back to estimated timing.")
-        _write_caption_ass_estimated(caption_text, duration, caption_path)
+        write_caption_ass_estimated(caption_text, duration, caption_path)
 
-    caption_filter_path = _escape_for_filtergraph(caption_path)
+    caption_filter_path = escape_for_filtergraph(caption_path)
 
     subprocess.run(
         [

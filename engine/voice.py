@@ -16,7 +16,7 @@ Real caveats, worth knowing before trusting this in the daily run:
     as of early 2026) -- see the workflow files' python-version setting.
   - The published checkpoint was saved with CUDA tensor mappings; loading
     it on a CPU-only machine raises a deserialize error unless patched
-    (see _patched_torch_load below)."""
+    (see patched_torch_load below)."""
 
 import subprocess
 import wave
@@ -24,28 +24,28 @@ from pathlib import Path
 
 import torch
 
-_original_torch_load = torch.load
+original_torch_load = torch.load
 
 
-def _patched_torch_load(f, map_location=None, **kwargs):
+def patched_torch_load(f, map_location=None, **kwargs):
     if map_location is None:
         map_location = "cpu"
-    return _original_torch_load(f, map_location=map_location, **kwargs)
+    return original_torch_load(f, map_location=map_location, **kwargs)
 
 
-torch.load = _patched_torch_load
+torch.load = patched_torch_load
 
 import torchaudio as ta  # noqa: E402
 from chatterbox.tts_turbo import ChatterboxTurboTTS  # noqa: E402
 
-_model = None
+model = None
 
 
 def ensure_model_loaded():
-    global _model
-    if _model is None:
-        _model = ChatterboxTurboTTS.from_pretrained(device="cpu")
-    return _model
+    global model
+    if model is None:
+        model = ChatterboxTurboTTS.from_pretrained(device="cpu")
+    return model
 
 
 def resolve_reference_clip(wav_path: Path, mp3_path: Path, converted_path: Path) -> Path:

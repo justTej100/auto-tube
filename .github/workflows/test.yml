@@ -35,17 +35,24 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Run pipeline
+      - name: Run channels
         run: python main.py
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
-          DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # Existing GitHub secrets mapped to NOVA_* env names used by engine/config.py
+          NOVA_GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          NOVA_GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          NOVA_GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          NOVA_DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+          NOVA_DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          HETTI_DISCORD_WEBHOOK_URL: ${{ secrets.HETTI_DISCORD_WEBHOOK_URL }}
+          HETTI_GOOGLE_CLIENT_ID: ${{ secrets.HETTI_GOOGLE_CLIENT_ID }}
+          HETTI_GOOGLE_CLIENT_SECRET: ${{ secrets.HETTI_GOOGLE_CLIENT_SECRET }}
+          HETTI_GOOGLE_REFRESH_TOKEN: ${{ secrets.HETTI_GOOGLE_REFRESH_TOKEN }}
+          HETTI_DRIVE_INTAKE_FOLDER_ID: ${{ secrets.HETTI_DRIVE_INTAKE_FOLDER_ID }}
+          HETTI_DRIVE_OUTPUT_FOLDER_ID: ${{ secrets.HETTI_DRIVE_OUTPUT_FOLDER_ID }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}

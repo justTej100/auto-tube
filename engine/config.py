@@ -14,7 +14,7 @@ import os
 from dataclasses import dataclass
 
 
-def _require(name: str) -> str:
+def require(name: str) -> str:
     value = os.environ.get(name)
     if not value:
         raise RuntimeError(f"Missing required environment variable: {name}")
@@ -53,9 +53,9 @@ class HettiConfig:
 
 def load_shared_config() -> SharedConfig:
     return SharedConfig(
-        gemini_api_key=_require("GEMINI_API_KEY"),
+        gemini_api_key=require("GEMINI_API_KEY"),
         hf_token=os.environ.get("HF_TOKEN") or None,
-        pexels_api_key=_require("PEXELS_API_KEY"),
+        pexels_api_key=require("PEXELS_API_KEY"),
         youtube_api_key=os.environ.get("YOUTUBE_API_KEY") or None,
         reddit_client_id=os.environ.get("REDDIT_CLIENT_ID") or None,
         reddit_client_secret=os.environ.get("REDDIT_CLIENT_SECRET") or None,
@@ -65,15 +65,15 @@ def load_shared_config() -> SharedConfig:
 
 def load_nova_config() -> NovaConfig:
     return NovaConfig(
-        discord_webhook_url=_require("NOVA_DISCORD_WEBHOOK_URL"),
-        google_client_id=_require("NOVA_GOOGLE_CLIENT_ID"),
-        google_client_secret=_require("NOVA_GOOGLE_CLIENT_SECRET"),
-        google_refresh_token=_require("NOVA_GOOGLE_REFRESH_TOKEN"),
-        drive_folder_id=_require("NOVA_DRIVE_FOLDER_ID"),
+        discord_webhook_url=require("NOVA_DISCORD_WEBHOOK_URL"),
+        google_client_id=require("NOVA_GOOGLE_CLIENT_ID"),
+        google_client_secret=require("NOVA_GOOGLE_CLIENT_SECRET"),
+        google_refresh_token=require("NOVA_GOOGLE_REFRESH_TOKEN"),
+        drive_folder_id=require("NOVA_DRIVE_FOLDER_ID"),
     )
 
 
-_HETTI_VARS = [
+HETTI_VARS = [
     "HETTI_DISCORD_WEBHOOK_URL",
     "HETTI_GOOGLE_CLIENT_ID",
     "HETTI_GOOGLE_CLIENT_SECRET",
@@ -87,7 +87,7 @@ def load_hetti_config() -> HettiConfig | None:
     """Returns None (not an error) when Hetti's secrets aren't fully set --
     lets main.py skip straight to NewNova on days/setups where Hetti isn't
     wired up yet, per the "if active, else just Nova" scheduling model."""
-    values = {name: os.environ.get(name) for name in _HETTI_VARS}
+    values = {name: os.environ.get(name) for name in HETTI_VARS}
     missing = [name for name, value in values.items() if not value]
     if missing:
         print(f"RankedbyHetti not fully configured (missing {missing}) -- skipping that stage.")

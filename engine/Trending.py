@@ -27,7 +27,7 @@ from google import genai
 from google.genai import types
 from huggingface_hub import InferenceClient
 
-from engine.discord_notify import send_research_skip_notification
+from engine.DiscordNotify import DiscordNotifier
 
 USER_AGENT = "dailydose-research-bot/1.0 (github actions; contact: local)"
 HTTP_TIMEOUT = 20
@@ -62,17 +62,17 @@ class SourceAttempt:
 # Small stateless helpers (no need for `self`)
 # ---------------------------------------------------------------------------
 
-def _headers(**extra: str) -> dict[str, str]:
+def headers(**extra: str) -> dict[str, str]:
     h = {"User-Agent": USER_AGENT}
     h.update(extra)
     return h
 
 
-def _as_bullets(lines: list[str], limit: int = 10) -> str:
+def as_bullets(lines: list[str], limit: int = 10) -> str:
     return "\n".join(f"- {line}" for line in lines[:limit])
 
 
-def _parse_rss_titles(xml_bytes: bytes, limit: int = 8) -> list[str]:
+def parse_rss_titles(xml_bytes: bytes, limit: int = 8) -> list[str]:
     root = ET.fromstring(xml_bytes)
     titles: list[str] = []
     # RSS 2.0
@@ -103,7 +103,7 @@ class Trending:
     Usage:
         trending = Trending(
             gemini_api_key=...,
-            discord_webhook_url=...,
+            discord=channel.discord,
             hf_token=...,
             youtube_api_key=...,
             reddit_client_id=...,
@@ -116,14 +116,14 @@ class Trending:
         self,
         gemini_api_key: str,
         *,
-        discord_webhook_url: str,
+        discord: DiscordNotifier,
         hf_token: str | None = None,
         youtube_api_key: str | None = None,
         reddit_client_id: str | None = None,
         reddit_client_secret: str | None = None,
     ) -> None:
         self.gemini_api_key = gemini_api_key
-        self.discord_webhook_url = discord_webhook_url
+        self.discord = discord
         self.hf_token = hf_token
         self.youtube_api_key = youtube_api_key
         self.reddit_client_id = reddit_client_id
@@ -131,7 +131,7 @@ class Trending:
 
     # -- Individual sources --------------------------------------------
 
-    def _fetch_gemini_grounded(self) -> SourceAttempt:
+    def fetch_gemini_grounded(self) -> SourceAttempt:
         name = "Gemini Google Search"
         try:
             client = genai.Client(api_key=self.gemini_api_key)
@@ -156,12 +156,12 @@ class Trending:
             print(f"{name} failed ({e}) -- skipping.")
             return SourceAttempt(name=name, skipped=True, reason=str(e))
 
-    def _fetch_hacker_news(self) -> SourceAttempt:
+    def fetch_hacker_news(self) -> SourceAttempt:
         name = "Hacker News"
         try:
             ids = requests.get(
                 "https://hacker-news.firebaseio.com/v0/topstories.json",
-                headers=_headers(),
+                headers=headers(),
                 timeout=HTTP_TIMEOUT,
             )
             ids.raise_for_status()
@@ -170,7 +170,7 @@ class Trending:
             for sid in story_ids:
                 item = requests.get(
                     f"https://hacker-news.firebaseio.com/v0/item/{sid}.json",
-                    headers=_headers(),
+                    headers=headers(),
                     timeout=HTTP_TIMEOUT,
                 )
                 item.raise_for_status()
@@ -187,7 +187,7 @@ class Trending:
             print(f"{name} failed ({e}) -- skipping.")
             return SourceAttempt(name=name, skipped=True, reason=str(e))
 
-    def _fetch_wikipedia_current(self) -> SourceAttempt:
+    def fetch_wikipedia_current(self) -> SourceAttempt:
         name = "Wikipedia Current Events"
         try:
             today = date.today()
@@ -204,7 +204,7 @@ class Trending:
                     "format": "json",
                     "formatversion": 2,
                 },
-                headers=_headers(),
+                headers=headers(),
                 timeout=HTTP_TIMEOUT,
             )
             r.raise_for_status()
@@ -241,16 +241,16 @@ class Trending:
             print(f"{name} failed ({e}) -- skipping.")
             return SourceAttempt(name=name, skipped=True, reason=str(e))
 
-    def _fetch_rss_feeds(self) -> SourceAttempt:
+    def fetch_rss_feeds(self) -> SourceAttempt:
         name = "RSS (Google News / BBC / NPR)"
         try:
             lines: list[str] = []
             errors: list[str] = []
             for feed_name, url in RSS_FEEDS:
                 try:
-                    r = requests.get(url, headers=_headers(), timeout=HTTP_TIMEOUT)
+                    r = requests.get(url, headers=headers(), timeout=HTTP_TIMEOUT)
                     r.raise_for_status()
-                    titles = _parse_rss_titles(r.content)
+                    titles = parse_rss_titles(r.content)
                     for t in titles:
                         lines.append(f"[{feed_name}] {t}")
                 except Exception as e:
@@ -264,7 +264,7 @@ class Trending:
             print(f"{name} failed ({e}) -- skipping.")
             return SourceAttempt(name=name, skipped=True, reason=str(e))
 
-    def _fetch_youtube_popular(self) -> SourceAttempt:
+    def fetch_youtube_popular(self) -> SourceAttempt:
         name = "YouTube Most Popular"
         if not self.youtube_api_key:
             reason = "YOUTUBE_API_KEY not set"
@@ -280,7 +280,7 @@ class Trending:
                     "maxResults": 10,
                     "key": self.youtube_api_key,
                 },
-                headers=_headers(),
+                headers=headers(),
                 timeout=HTTP_TIMEOUT,
             )
             r.raise_for_status()
@@ -298,13 +298,13 @@ class Trending:
             print(f"{name} failed ({e}) -- skipping.")
             return SourceAttempt(name=name, skipped=True, reason=str(e))
 
-    def _fetch_reddit_json(self) -> SourceAttempt:
+    def fetch_reddit_json(self) -> SourceAttempt:
         name = "Reddit .json"
         try:
             r = requests.get(
                 "https://www.reddit.com/r/all/top.json",
                 params={"t": "day", "limit": 10},
-                headers=_headers(),
+                headers=headers(),
                 timeout=HTTP_TIMEOUT,
             )
             r.raise_for_status()
@@ -321,7 +321,7 @@ class Trending:
             print(f"{name} failed ({e}) -- skipping.")
             return SourceAttempt(name=name, skipped=True, reason=str(e))
 
-    def _fetch_reddit_oauth(self) -> SourceAttempt:
+    def fetch_reddit_oauth(self) -> SourceAttempt:
         name = "Reddit OAuth"
         if not self.reddit_client_id or not self.reddit_client_secret:
             reason = "REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET not set"
@@ -332,7 +332,7 @@ class Trending:
                 "https://www.reddit.com/api/v1/access_token",
                 auth=(self.reddit_client_id, self.reddit_client_secret),
                 data={"grant_type": "client_credentials"},
-                headers=_headers(),
+                headers=headers(),
                 timeout=HTTP_TIMEOUT,
             )
             token_resp.raise_for_status()
@@ -343,7 +343,7 @@ class Trending:
             r = requests.get(
                 "https://oauth.reddit.com/r/all/top",
                 params={"t": "day", "limit": 10},
-                headers=_headers(Authorization=f"bearer {access_token}"),
+                headers=headers(Authorization=f"bearer {access_token}"),
                 timeout=HTTP_TIMEOUT,
             )
             r.raise_for_status()
@@ -362,7 +362,7 @@ class Trending:
 
     # -- Topic picking ----------------------------------------------------
 
-    def _pick_topic_with_gemini(self, research_context: str) -> str:
+    def pick_topic_with_gemini(self, research_context: str) -> str:
         client = genai.Client(api_key=self.gemini_api_key)
         response = client.models.generate_content(
             model="gemini-3-flash-preview",
@@ -379,7 +379,7 @@ class Trending:
             raise RuntimeError("Gemini topic picker returned empty text")
         return topic
 
-    def _pick_topic_with_huggingface(self, research_context: str) -> str:
+    def pick_topic_with_huggingface(self, research_context: str) -> str:
         client = InferenceClient(api_key=self.hf_token)
         completion = client.chat.completions.create(
             model="meta-llama/Llama-3.1-8B-Instruct",
@@ -413,13 +413,13 @@ class Trending:
 
         # Gemini first, then the rest in a stable order.
         attempts: list[SourceAttempt] = [
-            self._fetch_gemini_grounded(),
-            self._fetch_hacker_news(),
-            self._fetch_wikipedia_current(),
-            self._fetch_rss_feeds(),
-            self._fetch_youtube_popular(),
-            self._fetch_reddit_json(),
-            self._fetch_reddit_oauth(),
+            self.fetch_gemini_grounded(),
+            self.fetch_hacker_news(),
+            self.fetch_wikipedia_current(),
+            self.fetch_rss_feeds(),
+            self.fetch_youtube_popular(),
+            self.fetch_reddit_json(),
+            self.fetch_reddit_oauth(),
         ]
 
         successful = [a for a in attempts if not a.skipped and a.lines]
@@ -428,7 +428,7 @@ class Trending:
         if skipped:
             skip_lines = [f"**{a.name}**: {a.reason}" for a in skipped]
             try:
-                send_research_skip_notification(self.discord_webhook_url, skip_lines)
+                self.discord.send_research_skip(skip_lines)
                 print(f"Discord notified about {len(skipped)} skipped research source(s).")
             except Exception as e:
                 # Don't fail the run just because Discord skip notify failed.
@@ -441,20 +441,20 @@ class Trending:
                 "Set VIDEO_TOPIC to override, or retry later."
             )
 
-        sections = [f"### {a.name}\n{_as_bullets(a.lines)}" for a in successful]
+        sections = [f"### {a.name}\n{as_bullets(a.lines)}" for a in successful]
         research_context = (
             f"Live research gathered {date.today().isoformat()} UTC:\n\n"
             + "\n\n".join(sections)
         )
 
         try:
-            topic = self._pick_topic_with_gemini(research_context)
+            topic = self.pick_topic_with_gemini(research_context)
             topic_picker = "Gemini"
         except Exception as e:
             if not self.hf_token:
                 raise RuntimeError(f"Topic picking failed and no HF_TOKEN set: {e}") from e
             print(f"Gemini topic pick failed ({e}). Falling back to Hugging Face.")
-            topic = self._pick_topic_with_huggingface(research_context)
+            topic = self.pick_topic_with_huggingface(research_context)
             topic_picker = "Hugging Face"
 
         return TopicResearch(

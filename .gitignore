@@ -1,6 +1,7 @@
 client_secret.json
 client_secret.json:Zone.Identifier
 
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -76,3 +77,4 @@ cython_debug/
 tempCodeRunnerFile.py
 .ruff_cache/
 .pypirc
+.cursor
