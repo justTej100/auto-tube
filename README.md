@@ -17,106 +17,29 @@ Requires **Python 3.11** (chatterbox-tts).
 classDiagram
   direction TB
 
-  class Channel {
-    +discord DiscordNotifier
-    +qc QualityControl
-    +workdir Path
-    +run() str|None
-    +prepare()* object|None
-    +setup_voice()
-    +generate_script(context)* dict
-    +render_segments(script, context)* Path[]
-    +finalize_assembly(clips, script, context)* Path
-    +deliver(finalPath, script, context)* str
-    +cleanup(context)
-    +call_gemini_json(prompt) dict
-    +generate_until_quality(generateFn) dict
-    +synthesize_speech(text, outPath)
-    +transcribe_words(audioPath)
-    +build_segment_clip(...)
-    +concat_clips(clipPaths, outPath)
-    +mix_background_music(...)
-    +mix_sfx_events(...)
-    +upload_to_drive(folderId, filePath, filename) str
-  }
-
-  class Auto {
-    +trending Trending
-    +pexelsApiKey str
-    +prepare() AutoContext
-    +generate_script(context) dict
-    +render_segments(script, context) Path[]
-    +finalize_assembly(clips, script, context) Path
-    +deliver(finalPath, script, context) str
-    +fetch_stock_video(query, outPath)
-  }
-
-  class RankedNiche {
-    +driveIntakeFolderId str
-    +sfxDir Path
-    +prepare() RankedNicheContext|None
-    +generate_script(context) dict
-    +render_segments(script, context) Path[]
-    +finalize_assembly(clips, script, context) Path
-    +deliver(finalPath, script, context) str
-    +cleanup(context)
-  }
-
-  class DiscordNotifier {
-    +webhookUrl str
-    +send(message)
-    +send_review(...)
-    +send_research_skip(skipped)
-    +send_error(error)
-  }
-
-  class QualityControl {
-    +quality_threshold float
-    +score(script) tuple
-    +passes(totalScore) bool
-  }
-
-  class Trending {
-    +research() TopicResearch
-    +fetch_gemini_grounded() SourceAttempt
-    +fetch_hacker_news() SourceAttempt
-    +pick_topic_with_gemini(context) str
-  }
+  class Channel
+  class Auto
+  class RankedNiche
+  class DiscordNotifier
+  class QualityControl
+  class Voice
+  class Assemble
+  class Drive
+  class Trending
 
   Channel <|-- Auto : inherits
   Channel <|-- RankedNiche : inherits
   Channel *-- DiscordNotifier : has
   Channel *-- QualityControl : has
+  Channel *-- Voice : has
+  Channel *-- Assemble : has
+  Channel *-- Drive : has
   Auto *-- Trending : has
+  Assemble --> Voice : uses
 ```
 
-**Reading the diagram**
-
-- Triangle arrow = inheritance. Auto / RankedNiche *are* Channels.
-- Filled diamond = composition. Channel *owns* Discord + quality; Auto *owns* Trending.
-- To add a channel: subclass `Channel`, override `prepare`, `generate_script`, `render_segments`, `finalize_assembly` (and optionally `cleanup` / `deliver`).
-
-**One run**
-
-```mermaid
-sequenceDiagram
-  participant Main as main.py
-  participant Ch as Channel.run
-  participant Sub as Auto or RankedNiche
-  participant QC as QualityControl
-  participant Disc as DiscordNotifier
-
-  Main->>Ch: run()
-  Ch->>Sub: prepare()
-  Ch->>Sub: setup_voice()
-  Ch->>Sub: generate_script(context)
-  Sub->>QC: score / passes loop
-  Ch->>Sub: render_segments(script, context)
-  Ch->>Sub: finalize_assembly(clips, script, context)
-  Ch->>Sub: deliver(final, script, context)
-  Sub->>Disc: send_review / notify
-  Ch->>Sub: cleanup(context)
-```
+Triangle = inheritance. Filled diamond = composition (has-a).
+To add a channel: subclass `Channel`, override `prepare`, `generate_script`, `render_segments`, `finalize_assembly`.
 
 ---
 
@@ -152,17 +75,17 @@ Used for trending research (Google Search grounding), topic picking, and script 
 
 Used by Auto to download stock video clips for each script segment.
 
-### NewNova / Auto (required)
+### Auto (required)
 
-Workflows map these GitHub secrets into `NOVA_*` env vars expected by `engine/config.py`:
+Workflows map these GitHub secrets into `AUTO_*` env vars expected by `main.py`:
 
 | GitHub secret | Env var used at runtime |
 |---------------|-------------------------|
-| `DISCORD_WEBHOOK_URL` | `NOVA_DISCORD_WEBHOOK_URL` |
-| `GOOGLE_CLIENT_ID` | `NOVA_GOOGLE_CLIENT_ID` |
-| `GOOGLE_CLIENT_SECRET` | `NOVA_GOOGLE_CLIENT_SECRET` |
-| `GOOGLE_REFRESH_TOKEN` | `NOVA_GOOGLE_REFRESH_TOKEN` |
-| `DRIVE_FOLDER_ID` | `NOVA_DRIVE_FOLDER_ID` |
+| `DISCORD_WEBHOOK_URL` | `AUTO_DISCORD_WEBHOOK_URL` |
+| `GOOGLE_CLIENT_ID` | `AUTO_GOOGLE_CLIENT_ID` |
+| `GOOGLE_CLIENT_SECRET` | `AUTO_GOOGLE_CLIENT_SECRET` |
+| `GOOGLE_REFRESH_TOKEN` | `AUTO_GOOGLE_REFRESH_TOKEN` |
+| `DRIVE_FOLDER_ID` | `AUTO_DRIVE_FOLDER_ID` |
 
 #### Discord webhook
 1. In Discord: channel settings → **Integrations → Webhooks → New Webhook**
@@ -184,16 +107,16 @@ Workflows map these GitHub secrets into `NOVA_*` env vars expected by `engine/co
    `https://drive.google.com/drive/folders/THIS_PART` → secret `DRIVE_FOLDER_ID`
 8. Delete local `client_secret.json` when you’re done
 
-### RankedbyHetti / RankedNiche (optional as a whole)
+### RankedNiche (optional as a whole)
 
 If any of these are missing, that channel is skipped and Auto still runs:
 
-- `HETTI_DISCORD_WEBHOOK_URL`
-- `HETTI_GOOGLE_CLIENT_ID`
-- `HETTI_GOOGLE_CLIENT_SECRET`
-- `HETTI_GOOGLE_REFRESH_TOKEN`
-- `HETTI_DRIVE_INTAKE_FOLDER_ID`
-- `HETTI_DRIVE_OUTPUT_FOLDER_ID`
+- `RANKEDNICHE_DISCORD_WEBHOOK_URL`
+- `RANKEDNICHE_GOOGLE_CLIENT_ID`
+- `RANKEDNICHE_GOOGLE_CLIENT_SECRET`
+- `RANKEDNICHE_GOOGLE_REFRESH_TOKEN`
+- `RANKEDNICHE_DRIVE_INTAKE_FOLDER_ID`
+- `RANKEDNICHE_DRIVE_OUTPUT_FOLDER_ID`
 
 ### Optional (research / fallbacks)
 
@@ -218,18 +141,18 @@ pip install -r requirements.txt
 
 export GEMINI_API_KEY=...
 export PEXELS_API_KEY=...
-export NOVA_DISCORD_WEBHOOK_URL=...
-export NOVA_GOOGLE_CLIENT_ID=...
-export NOVA_GOOGLE_CLIENT_SECRET=...
-export NOVA_GOOGLE_REFRESH_TOKEN=...
-export NOVA_DRIVE_FOLDER_ID=...
+export AUTO_DISCORD_WEBHOOK_URL=...
+export AUTO_GOOGLE_CLIENT_ID=...
+export AUTO_GOOGLE_CLIENT_SECRET=...
+export AUTO_GOOGLE_REFRESH_TOKEN=...
+export AUTO_DRIVE_FOLDER_ID=...
 # optional:
 # export HF_TOKEN=...
 # export YOUTUBE_API_KEY=...
 # export REDDIT_CLIENT_ID=...
 # export REDDIT_CLIENT_SECRET=...
 # export VIDEO_TOPIC="optional fixed topic"
-# export HETTI_*=...
+# export RANKEDNICHE_*=...
 
 python main.py
 ```
@@ -245,14 +168,13 @@ Leave `VIDEO_TOPIC` unset to research trending automatically.
 | Path | Role |
 |------|------|
 | `main.py` | Builds Auto (+ RankedNiche if configured) and calls `.run()` |
-| `engine/Channel.py` | Template method + shared voice / assemble / Drive / Discord / QC |
-| `engine/auto.py` | Autonomous research + Pexels + BGM channel |
+| `engine/Channel.py` | Template method; owns Discord / QC / Voice / Assemble / Drive |
+| `engine/Auto.py` | Autonomous research + Pexels + BGM channel |
 | `engine/RankedNiche.py` | Drive intake countdown + SFX channel |
 | `engine/Trending.py` | Multi-source topic research |
 | `engine/QualityControl.py` | Script quality gate |
 | `engine/DiscordNotify.py` | Discord webhook notifier |
-| `engine/assemble.py` | ffmpeg segments, captions, BGM/SFX mix |
-| `engine/voice.py` | Chatterbox-Turbo voice clone |
-| `engine/drive.py` | Google Drive helpers |
-| `engine/config.py` | Shared / Nova / Hetti env loading |
+| `engine/Assemble.py` | Captions, concat, BGM/SFX mix |
+| `engine/Voice.py` | Chatterbox-Turbo voice clone |
+| `engine/Drive.py` | Google Drive client |
 | `get_drive_token.py` | One-time Drive OAuth helper |
