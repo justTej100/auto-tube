@@ -15,7 +15,6 @@ import requests
 from huggingface_hub import InferenceClient
 
 from engine.Channel import Channel
-from engine.json_utils import extract_json
 from engine.Trending import Trending
 
 MAX_QUALITY_RETRIES = 3
@@ -199,20 +198,22 @@ class Auto(Channel):
             video_path = self.workdir / f"seg_{i}_source.mp4"
             clip_path = self.workdir / f"seg_{i}.mp4"
 
-            self.synthesize_speech(seg["narration"], audio_path)
+            self.voice.synthesize_speech(seg["narration"], audio_path, self.reference_clip)
             self.fetch_stock_video(seg["image_query"], video_path)
-            self.build_segment_clip(video_path, audio_path, clip_path, seg["narration"])
+            self.assemble.build_segment_clip(
+                video_path, audio_path, clip_path, seg["narration"]
+            )
             clip_paths.append(clip_path)
         return clip_paths
 
     def finalize_assembly(self, clips: list[Path], script: dict, context: AutoContext) -> Path:
         final_path = self.workdir / "final.mp4"
-        self.concat_clips(clips, final_path)
+        self.assemble.concat_clips(clips, final_path)
         print(f"Video assembled: {final_path}")
 
         if self.music_path.exists():
             mixed_path = self.workdir / "final_with_music.mp4"
-            self.mix_background_music(final_path, self.music_path, mixed_path)
+            self.assemble.mix_background_music(final_path, self.music_path, mixed_path)
             final_path = mixed_path
             print("Background music mixed in.")
         else:
@@ -222,7 +223,7 @@ class Auto(Channel):
 
     def deliver(self, final_path: Path, script: dict, context: AutoContext) -> str:
         filename = f"{date.today().isoformat()} - {script['title']}.mp4"
-        drive_link = self.upload_to_drive(self.drive_folder_id, final_path, filename)
+        drive_link = self.drive.upload_file(self.drive_folder_id, final_path, filename)
         print(f"Uploaded to Drive: {drive_link}")
 
         self.discord.send_review(
@@ -305,7 +306,7 @@ class Auto(Channel):
         for attempt in range(1, MAX_HF_JSON_RETRIES + 1):
             try:
                 content = self.hf_chat_json(client, prompt)
-                return extract_json(content)
+                return self.extract_json(content)
             except (ValueError, TypeError, IndexError, KeyError) as e:
                 last_error = e
                 print(f"HF JSON parse attempt {attempt}/{MAX_HF_JSON_RETRIES} failed: {e}")

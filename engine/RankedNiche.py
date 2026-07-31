@@ -17,7 +17,6 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from engine import drive
 from engine.Channel import Channel
 
 MAX_SCRIPT_RETRIES = 3
@@ -168,15 +167,15 @@ class RankedNiche(Channel):
             clip_path = self.workdir / f"seg_{i}.mp4"
             source_video = context.clips[clip_number]
 
-            self.synthesize_speech(seg["narration"], audio_path)
+            self.voice.synthesize_speech(seg["narration"], audio_path, self.reference_clip)
             # Transcribed once, reused for captions AND sfx timing below --
             # avoids running whisper twice per clip.
-            words = self.transcribe_words(audio_path)
+            words = self.assemble.transcribe_words(audio_path)
             context.segment_words.append(words)
             context.segment_offsets.append(cumulative)
-            cumulative += self.wav_duration_seconds(audio_path)
+            cumulative += self.voice.wav_duration_seconds(audio_path)
 
-            self.build_segment_clip(
+            self.assemble.build_segment_clip(
                 source_video,
                 audio_path,
                 clip_path,
@@ -191,7 +190,7 @@ class RankedNiche(Channel):
         self, clips: list[Path], script: dict, context: RankedNicheContext
     ) -> Path:
         concat_path = self.workdir / "concat.mp4"
-        self.concat_clips(clips, concat_path)
+        self.assemble.concat_clips(clips, concat_path)
 
         catalog = self.load_sfx_catalog()
         sfx_events: list[tuple[Path, float]] = []
@@ -203,7 +202,7 @@ class RankedNiche(Channel):
         context.sfx_event_count = len(sfx_events)
 
         final_path = self.workdir / "final.mp4"
-        self.mix_sfx_events(concat_path, sfx_events, final_path)
+        self.assemble.mix_sfx_events(concat_path, sfx_events, final_path)
         print(f"RankedNiche video assembled: {final_path}")
         return final_path
 
@@ -211,7 +210,7 @@ class RankedNiche(Channel):
         self, final_path: Path, script: dict, context: RankedNicheContext
     ) -> str:
         filename = f"{date.today().isoformat()} - {script['title']}.mp4"
-        drive_link = self.upload_to_drive(
+        drive_link = self.drive.upload_file(
             self.drive_output_folder_id, final_path, filename
         )
         print(f"Uploaded to Drive: {drive_link}")
@@ -230,7 +229,7 @@ class RankedNiche(Channel):
     def cleanup(self, context: RankedNicheContext) -> None:
         """Permanently deletes the intake folder once its video has been
         fully assembled and uploaded, so processed folders don't pile up."""
-        drive.delete_folder(self.get_drive(), context.folder_id)
+        self.drive.delete_folder(context.folder_id)
         print(f"Deleted intake folder: {context.topic}")
 
     # =========================================================
@@ -247,9 +246,8 @@ class RankedNiche(Channel):
         watches the footage. Partial folders are logged and left alone,
         not treated as an error -- that's the normal state while clips
         are still being uploaded."""
-        drive_client = self.get_drive()
-        for folder in drive.list_subfolders(drive_client, self.drive_intake_folder_id):
-            files = drive.list_files(drive_client, folder["id"])
+        for folder in self.drive.list_subfolders(self.drive_intake_folder_id):
+            files = self.drive.list_files(folder["id"])
             clip_files = {}
             manifest_file = None
             for f in files:
@@ -281,20 +279,17 @@ class RankedNiche(Channel):
         return None
 
     def download_folder_contents(self, ready_folder: dict, workdir: Path) -> dict:
-        drive_client = self.get_drive()
         workdir.mkdir(parents=True, exist_ok=True)
 
         clips = {}
         for number, file_info in ready_folder["clip_files"].items():
             ext = Path(file_info["name"]).suffix or ".mp4"
             out_path = workdir / f"clip_{number}{ext}"
-            drive.download_file(drive_client, file_info["id"], out_path)
+            self.drive.download_file(file_info["id"], out_path)
             clips[number] = out_path
 
         manifest_path = workdir / MANIFEST_FILENAME
-        drive.download_file(
-            drive_client, ready_folder["manifest_file"]["id"], manifest_path
-        )
+        self.drive.download_file(ready_folder["manifest_file"]["id"], manifest_path)
         manifest = json.loads(manifest_path.read_text())
 
         return {"clips": clips, "manifest": manifest}
