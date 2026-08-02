@@ -7,7 +7,6 @@ configured."""
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -15,7 +14,7 @@ import requests
 from huggingface_hub import InferenceClient
 
 from engine.Channel import Channel
-from engine.Sources import Reddit
+from engine.Reddit import Reddit
 
 MAX_QUALITY_RETRIES = 3
 MAX_HF_JSON_RETRIES = 3
@@ -101,17 +100,25 @@ to the Reddit material in the research above.
 """
 
 
-@dataclass
 class AutoContext:
     """What prepare() gathers before scripting: the topic plus whatever
     research backed it (empty if VIDEO_TOPIC was set manually)."""
-    topic: str
-    research_context: str | None
-    topic_picker: str | None
-    research_sources: tuple[str, ...]
-    research_findings: tuple[tuple[str, str], ...] = ()
-    script_provider: str | None = None
-    from_reddit: bool = False
+
+    def __init__(
+        self,
+        topic: str,
+        research_context: str | None,
+        topic_picker: str | None,
+        research_sources: tuple[str, ...] = (),
+        research_findings: tuple[tuple[str, str], ...] = (),
+        script_provider: str | None = None,
+    ) -> None:
+        self.topic = topic
+        self.research_context = research_context
+        self.topic_picker = topic_picker
+        self.research_sources = research_sources
+        self.research_findings = research_findings
+        self.script_provider = script_provider
 
 
 class Auto(Channel):
@@ -182,7 +189,6 @@ class Auto(Channel):
             topic_picker=result.topic_picker,
             research_sources=result.used_sources,
             research_findings=result.research_findings,
-            from_reddit=result.from_reddit,
         )
 
     def generate_script(self, context: AutoContext) -> dict:
@@ -190,7 +196,6 @@ class Auto(Channel):
             script, provider = self.generate_script_once(
                 context.topic,
                 context.research_context,
-                from_reddit=context.from_reddit,
             )
             context.script_provider = provider
             return script
@@ -262,13 +267,12 @@ class Auto(Channel):
         self,
         topic: str,
         research_context: str | None,
-        *,
-        from_reddit: bool = False,
     ) -> str:
+        # Auto always researches via Reddit, so researched runs get the story block.
         return SCRIPT_PROMPT_TEMPLATE.format(
             topic=topic,
             research_block=self.format_research_block(research_context),
-            reddit_story_block=REDDIT_STORY_BLOCK if from_reddit else "",
+            reddit_story_block=REDDIT_STORY_BLOCK if research_context else "",
         )
 
     def hf_chat_json(self, client: InferenceClient, prompt: str) -> str:
@@ -315,12 +319,10 @@ class Auto(Channel):
         self,
         topic: str,
         research_context: str | None,
-        *,
-        from_reddit: bool = False,
     ) -> dict:
         client = InferenceClient(api_key=self.hf_token)
         prompt = (
-            self.build_script_prompt(topic, research_context, from_reddit=from_reddit)
+            self.build_script_prompt(topic, research_context)
             + "\n\nReturn ONLY the JSON object, no other text."
         )
 
@@ -343,12 +345,8 @@ class Auto(Channel):
         self,
         topic: str,
         research_context: str | None,
-        *,
-        from_reddit: bool = False,
     ) -> tuple[dict, str]:
-        prompt = self.build_script_prompt(
-            topic, research_context, from_reddit=from_reddit
-        )
+        prompt = self.build_script_prompt(topic, research_context)
         try:
             script = self.call_gemini_json(prompt, attempts=3, retry_wait=10)
             return script, "Gemini"
@@ -356,9 +354,7 @@ class Auto(Channel):
             if not self.hf_token:
                 raise
             print(f"Gemini unavailable after retries ({e}). Falling back to Hugging Face.")
-            script = self.generate_with_huggingface(
-                topic, research_context, from_reddit=from_reddit
-            )
+            script = self.generate_with_huggingface(topic, research_context)
             return script, "Hugging Face"
 
     # =========================================================

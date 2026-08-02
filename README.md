@@ -186,7 +186,9 @@ Leave `VIDEO_TOPIC` unset to research trending automatically.
 | `engine/Channel.py` | Template method; owns Discord / QC / Voice / Assemble / Drive |
 | `engine/Auto.py` | Autonomous research + Pexels + BGM channel |
 | `engine/RankedNiche.py` | Drive intake countdown + SFX channel |
-| `engine/Sources.py` | Topic research: `Trending` + `Reddit` / `News` subclasses |
+| `engine/Trending.py` | Topic research parent (`pick_topic`, `research`) |
+| `engine/Reddit.py` | Reddit OAuth trending (used by Auto) |
+| `engine/News.py` | YouTube / RSS / Wiki / HN trending |
 | `engine/QualityControl.py` | Script quality gate |
 | `engine/DiscordNotify.py` | Discord webhook notifier |
 | `engine/Assemble.py` | Captions, concat, BGM/SFX mix |
