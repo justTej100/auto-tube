@@ -69,7 +69,6 @@ def main():
         google_refresh_token=require("AUTO_GOOGLE_REFRESH_TOKEN"),
         drive_folder_id=require("AUTO_DRIVE_FOLDER_ID"),
         video_topic=os.environ.get("VIDEO_TOPIC") or None,
-        youtube_api_key=os.environ.get("YOUTUBE_API_KEY") or None,
         reddit_client_id=os.environ.get("REDDIT_CLIENT_ID") or None,
         reddit_client_secret=os.environ.get("REDDIT_CLIENT_SECRET") or None,
     ).run()

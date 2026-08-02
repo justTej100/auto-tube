@@ -26,15 +26,19 @@ classDiagram
   class Assemble
   class Drive
   class Trending
+  class Reddit
+  class News
 
   Channel <|-- Auto : inherits
   Channel <|-- RankedNiche : inherits
+  Trending <|-- Reddit : inherits
+  Trending <|-- News : inherits
   Channel *-- DiscordNotifier : has
   Channel *-- QualityControl : has
   Channel *-- Voice : has
   Channel *-- Assemble : has
   Channel *-- Drive : has
-  Auto *-- Trending : has
+  Auto *-- Reddit : has
   Assemble --> Voice : uses
 ```
 
@@ -182,7 +186,7 @@ Leave `VIDEO_TOPIC` unset to research trending automatically.
 | `engine/Channel.py` | Template method; owns Discord / QC / Voice / Assemble / Drive |
 | `engine/Auto.py` | Autonomous research + Pexels + BGM channel |
 | `engine/RankedNiche.py` | Drive intake countdown + SFX channel |
-| `engine/Trending.py` | Multi-source topic research |
+| `engine/Sources.py` | Topic research: `Trending` + `Reddit` / `News` subclasses |
 | `engine/QualityControl.py` | Script quality gate |
 | `engine/DiscordNotify.py` | Discord webhook notifier |
 | `engine/Assemble.py` | Captions, concat, BGM/SFX mix |

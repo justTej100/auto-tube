@@ -15,7 +15,7 @@ import requests
 from huggingface_hub import InferenceClient
 
 from engine.Channel import Channel
-from engine.Trending import Trending
+from engine.Sources import Reddit
 
 MAX_QUALITY_RETRIES = 3
 MAX_HF_JSON_RETRIES = 3
@@ -126,7 +126,6 @@ class Auto(Channel):
         google_refresh_token: str,
         drive_folder_id: str,
         video_topic: str | None = None,
-        youtube_api_key: str | None = None,
         reddit_client_id: str | None = None,
         reddit_client_secret: str | None = None,
         workdir: Path = Path("build/auto"),
@@ -152,13 +151,12 @@ class Auto(Channel):
         self.drive_folder_id = drive_folder_id
         self.video_topic = video_topic
         self.music_path = music_path
-        self.trending = Trending(
+        self.trending = Reddit(
             gemini_api_key,
             discord=self.discord,
+            reddit_client_id=reddit_client_id or "",
+            reddit_client_secret=reddit_client_secret or "",
             hf_token=hf_token,
-            youtube_api_key=youtube_api_key,
-            reddit_client_id=reddit_client_id,
-            reddit_client_secret=reddit_client_secret,
         )
 
     # =========================================================
@@ -175,14 +173,9 @@ class Auto(Channel):
                 research_sources=(),
             )
 
-        print(
-            "Researching today's trending topic "
-            "(Reddit first, then YouTube, then news)..."
-        )
+        print("Researching today's Reddit story...")
         result = self.trending.research()
         print(f"Topic selected via {result.topic_picker}: {result.topic}")
-        if result.from_reddit:
-            print("Topic locked to a Reddit story.")
         return AutoContext(
             topic=result.topic,
             research_context=result.research_context,
