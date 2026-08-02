@@ -66,7 +66,7 @@ Add these under **Repo → Settings → Secrets and variables → Actions**.
 2. Create an API key
 3. Paste it as the secret
 
-Used for trending research (Google Search grounding), topic picking, and script writing.
+Used for topic picking and script writing.
 
 #### `PEXELS_API_KEY`
 1. Go to [Pexels API](https://www.pexels.com/api/)

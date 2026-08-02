@@ -109,6 +109,7 @@ class AutoContext:
     research_context: str | None
     topic_picker: str | None
     research_sources: tuple[str, ...]
+    research_findings: tuple[tuple[str, str], ...] = ()
     script_provider: str | None = None
     from_reddit: bool = False
 
@@ -176,7 +177,7 @@ class Auto(Channel):
 
         print(
             "Researching today's trending topic "
-            "(Reddit first, then YouTube, news, Gemini grounded)..."
+            "(Reddit first, then YouTube, then news)..."
         )
         result = self.trending.research()
         print(f"Topic selected via {result.topic_picker}: {result.topic}")
@@ -187,6 +188,7 @@ class Auto(Channel):
             research_context=result.research_context,
             topic_picker=result.topic_picker,
             research_sources=result.used_sources,
+            research_findings=result.research_findings,
             from_reddit=result.from_reddit,
         )
 
@@ -246,7 +248,7 @@ class Auto(Channel):
             topic=context.topic,
             topic_picker=context.topic_picker,
             script_provider=context.script_provider,
-            research_sources=list(context.research_sources) or None,
+            research_findings=context.research_findings or None,
         )
         print("Discord notification sent.")
         return drive_link

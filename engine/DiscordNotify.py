@@ -61,7 +61,7 @@ class DiscordNotifier:
         topic: str | None = None,
         topic_picker: str | None = None,
         script_provider: str | None = None,
-        research_sources: Sequence[str] | None = None,
+        research_findings: Sequence[tuple[str, str]] | None = None,
         username: str | None = None,
     ) -> None:
         self.send(
@@ -71,7 +71,7 @@ class DiscordNotifier:
                 topic=topic,
                 topic_picker=topic_picker,
                 script_provider=script_provider,
-                research_sources=research_sources,
+                research_findings=research_findings,
                 username=username,
             )
         )
@@ -97,7 +97,7 @@ class DiscordNotifier:
         topic: str | None = None,
         topic_picker: str | None = None,
         script_provider: str | None = None,
-        research_sources: Sequence[str] | None = None,
+        research_findings: Sequence[tuple[str, str]] | None = None,
         username: str | None = None,
     ) -> DiscordMessage:
         """Posts a review link plus which models/sources powered this run."""
@@ -110,7 +110,7 @@ class DiscordNotifier:
             topic=topic,
             topic_picker=topic_picker,
             script_provider=script_provider,
-            research_sources=research_sources,
+            research_findings=research_findings,
         )
         if details:
             lines.append("")
@@ -143,15 +143,19 @@ class DiscordNotifier:
         topic: str | None,
         topic_picker: str | None,
         script_provider: str | None,
-        research_sources: Sequence[str] | None,
+        research_findings: Sequence[tuple[str, str]] | None,
     ) -> list[str]:
         details: list[str] = []
         if topic_picker:
             details.append(f"Topic pick: **{topic_picker}**")
         if script_provider:
             details.append(f"Script gen: **{script_provider}**")
-        if research_sources:
-            details.append(f"Research: {', '.join(research_sources)}")
+        if research_findings:
+            details.append("Research:")
+            details.append("")
+            for source, finding in research_findings:
+                clipped = finding if len(finding) <= 160 else finding[:157] + "…"
+                details.append(f"{source} - {clipped}")
         elif topic_picker is None and topic:
             details.append("Research: skipped (manual `VIDEO_TOPIC`)")
         return details

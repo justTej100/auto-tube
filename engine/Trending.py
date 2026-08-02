@@ -5,12 +5,11 @@ Fetch / preference order:
   1. Reddit OAuth
   2. YouTube most popular
   3. News (RSS, Wikipedia current events, Hacker News)
-  4. Gemini Google Search grounding
 
 When Reddit returns posts, topic picking MUST choose one Reddit story.
 Each source fails soft -- skipped sources are Discord-notified.
 If every source fails, research() raises. Topic picking is a separate
-plain Gemini call (no grounding), with optional HF fallback.
+plain Gemini call, with optional HF fallback.
 """
 
 from __future__ import annotations
@@ -22,7 +21,6 @@ from xml.etree import ElementTree as ET
 
 import requests
 from google import genai
-from google.genai import types
 from huggingface_hub import InferenceClient
 
 from engine.DiscordNotify import DiscordNotifier
@@ -44,6 +42,8 @@ class TopicResearch:
     research_context: str
     skipped_sources: tuple[str, ...] = ()
     used_sources: tuple[str, ...] = ()
+    # One highlight line per successful source: (source_name, top finding).
+    research_findings: tuple[tuple[str, str], ...] = ()
     # "Gemini" or "Hugging Face" — which model picked the topic.
     topic_picker: str = "Gemini"
     # True when Reddit had posts and the topic was chosen from them.
@@ -136,33 +136,7 @@ class Trending:
 
     # -- Individual sources --------------------------------------------
 
-    def fetch_gemini_grounded(self) -> SourceAttempt:
-        name = "Gemini Google Search"
-        try:
-            client = genai.Client(api_key=self.gemini_api_key)
-            response = client.models.generate_content(
-                model="gemini-3-flash-preview",
-                contents=(
-                    "Search for what's trending in news, culture, and social media "
-                    "right now. List 5 specific current stories or topics (not vague "
-                    "categories) that would make a compelling short story-driven video "
-                    "for a general 'daily dose of life' YouTube audience. One line each."
-                ),
-                config=types.GenerateContentConfig(
-                    tools=[types.Tool(google_search=types.GoogleSearch())],
-                ),
-            )
-            text = (response.text or "").strip()
-            if not text:
-                raise RuntimeError("empty grounded response")
-            
-            lines = [ln.lstrip("-•* ").strip() for ln in text.splitlines() if ln.strip()]
-            return SourceAttempt(name=name, lines=lines)
-        
-        except Exception as e:
-            print(f"{name} failed ({e}) -- skipping.")
-            return SourceAttempt(name=name, skipped=True, reason=str(e))
-
+    
     def fetch_hacker_news(self) -> SourceAttempt:
         name = "Hacker News"
         
@@ -328,7 +302,7 @@ class Trending:
                 raise RuntimeError(f"no access_token in response: {token_resp.text[:200]}")
 
             r = requests.get(
-                "https://oauth.reddit.com/r/all/top",
+                "https://oauth.reddit.com/r/AmItheAsshole/top",
                 params={"t": "day", "limit": 10},
                 headers=headers(Authorization=f"bearer {access_token}"),
                 timeout=HTTP_TIMEOUT,
@@ -364,7 +338,7 @@ class Trending:
             f"{research_context}\n\n"
             "Pick the SINGLE most compelling, story-worthy topic from the above "
             "for a short narrative YouTube video. Priority order: YouTube first, "
-            "then news (RSS / Wikipedia / Hacker News), then anything else. "
+            "then news (RSS / Wikipedia / Hacker News). "
             "Describe it in one sentence, specific enough to write a script from -- "
             "not a vague category. Reply with ONLY that one sentence."
         )
@@ -410,14 +384,13 @@ class Trending:
         """Runs every research source in preference order. Skipped sources are
         reported to Discord. Raises only if nothing usable remains."""
 
-        # Reddit → YouTube → news → Gemini grounded.
+        # Reddit → YouTube → news.
         attempts: list[SourceAttempt] = [
             self.fetch_reddit_oauth(),
             self.fetch_youtube_popular(),
             self.fetch_rss_feeds(),
             self.fetch_wikipedia_current(),
             self.fetch_hacker_news(),
-            self.fetch_gemini_grounded(),
         ]
 
         successful = [a for a in attempts if not a.skipped and a.lines]
@@ -445,6 +418,7 @@ class Trending:
             f"Live research gathered {date.today().isoformat()} UTC:\n\n"
             + "\n\n".join(sections)
         )
+        research_findings = tuple((a.name, a.lines[0]) for a in successful)
 
         try:
             topic = self.pick_topic_with_gemini(
@@ -465,6 +439,7 @@ class Trending:
             research_context=research_context,
             skipped_sources=tuple(a.name for a in skipped),
             used_sources=tuple(a.name for a in successful),
+            research_findings=research_findings,
             topic_picker=topic_picker,
             from_reddit=prefer_reddit,
         )
