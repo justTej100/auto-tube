@@ -61,7 +61,7 @@ class DiscordNotifier:
         topic: str | None = None,
         topic_picker: str | None = None,
         script_provider: str | None = None,
-        research_findings: Sequence[tuple[str, str]] | None = None,
+        research_findings: Sequence[tuple[str, Sequence[str]]] | None = None,
         username: str | None = None,
     ) -> None:
         self.send(
@@ -97,7 +97,7 @@ class DiscordNotifier:
         topic: str | None = None,
         topic_picker: str | None = None,
         script_provider: str | None = None,
-        research_findings: Sequence[tuple[str, str]] | None = None,
+        research_findings: Sequence[tuple[str, Sequence[str]]] | None = None,
         username: str | None = None,
     ) -> DiscordMessage:
         """Posts a review link plus which models/sources powered this run."""
@@ -143,7 +143,7 @@ class DiscordNotifier:
         topic: str | None,
         topic_picker: str | None,
         script_provider: str | None,
-        research_findings: Sequence[tuple[str, str]] | None,
+        research_findings: Sequence[tuple[str, Sequence[str]]] | None,
     ) -> list[str]:
         details: list[str] = []
         if topic_picker:
@@ -151,11 +151,12 @@ class DiscordNotifier:
         if script_provider:
             details.append(f"Script gen: **{script_provider}**")
         if research_findings:
-            details.append("Research:")
-            details.append("")
-            for source, finding in research_findings:
-                clipped = finding if len(finding) <= 160 else finding[:157] + "…"
-                details.append(f"{source} - {clipped}")
+            details.append("Research choices:")
+            for source, findings in research_findings:
+                details.append(f"**{source}**")
+                for finding in findings:
+                    clipped = finding if len(finding) <= 160 else finding[:157] + "…"
+                    details.append(f"• {clipped}")
         elif topic_picker is None and topic:
             details.append("Research: skipped (manual `VIDEO_TOPIC`)")
         return details

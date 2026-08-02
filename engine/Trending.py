@@ -35,7 +35,7 @@ class TopicResearch:
         research_context: str,
         skipped_sources: tuple[str, ...] = (),
         used_sources: tuple[str, ...] = (),
-        research_findings: tuple[tuple[str, str], ...] = (),
+        research_findings: tuple[tuple[str, tuple[str, ...]], ...] = (),
         topic_picker: str = "Gemini",
     ) -> None:
         self.topic = topic
@@ -136,7 +136,7 @@ class Trending:
             f"Live research gathered {date.today().isoformat()} UTC:\n\n"
             + "\n\n".join(sections)
         )
-        research_findings = tuple((a.name, a.lines[0]) for a in successful)
+        research_findings = tuple((a.name, tuple(a.lines)) for a in successful)
         topic, topic_picker = self.pick_topic(research_context)
 
         return TopicResearch(

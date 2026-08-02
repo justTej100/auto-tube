@@ -110,7 +110,7 @@ class AutoContext:
         research_context: str | None,
         topic_picker: str | None,
         research_sources: tuple[str, ...] = (),
-        research_findings: tuple[tuple[str, str], ...] = (),
+        research_findings: tuple[tuple[str, tuple[str, ...]], ...] = (),
         script_provider: str | None = None,
     ) -> None:
         self.topic = topic
