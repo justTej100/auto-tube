@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import requests
 
 from engine.DiscordNotify import DiscordNotifier
 from engine.Trending import HTTP_TIMEOUT, SourceAttempt, Trending, headers
+
+DENVER = ZoneInfo("America/Denver")
+# Publish hours (Denver local): 5am, 1pm, 8pm → slots 1, 2, 3.
+SLOT_BY_HOUR = {5: 1, 13: 2, 20: 3}
 
 
 class Reddit(Trending):
@@ -23,19 +30,33 @@ class Reddit(Trending):
         self.reddit_client_id = reddit_client_id
         self.reddit_client_secret = reddit_client_secret
         self.subreddit = subreddit
+        self._titles: list[str] = []
 
     def gather(self) -> list[SourceAttempt]:
-        return [self.fetch_reddit_oauth()]
+        attempt = self.fetch_reddit_oauth()
+        self._titles = list(attempt.lines) if not attempt.skipped else []
+        return [attempt]
 
     def topic_pick_prompt(self, research_context: str) -> str:
-        return (
-            f"{research_context}\n\n"
-            "Pick ONE specific Reddit post from the section above and turn it into "
-            "the topic for a short narrative YouTube video ABOUT THAT REDDIT STORY -- "
-            "what the post is about, what happened, why people cared. Describe the "
-            "Reddit story in one sentence, specific enough to write a script from. "
-            "Reply with ONLY that one sentence."
-        )
+        # Unused: Reddit overrides pick_topic with schedule-based selection.
+        return research_context
+
+    def scheduled_rank(self, now: datetime | None = None) -> int:
+        """Odd Denver day → ranks 1–3; even day → 4–6. Slot from local hour."""
+        local = now.astimezone(DENVER) if now is not None else datetime.now(DENVER)
+        slot = SLOT_BY_HOUR.get(local.hour, 1)
+        base = 0 if local.day % 2 == 1 else 3
+        return base + slot
+
+    def pick_topic(self, research_context: str) -> tuple[str, str]:
+        titles = self._titles
+        if not titles:
+            raise RuntimeError("No Reddit titles available for schedule pick")
+        rank = self.scheduled_rank()
+        idx = min(rank, len(titles)) - 1
+        topic = titles[idx]
+        print(f"Schedule pick: Denver rank {rank} → #{idx + 1}: {topic}")
+        return topic, f"schedule rank {rank}"
 
     def fetch_reddit_oauth(self) -> SourceAttempt:
         name = "Reddit OAuth"
