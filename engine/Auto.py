@@ -158,6 +158,7 @@ class Auto(Channel):
         self.drive_folder_id = drive_folder_id
         self.video_topic = video_topic
         self.music_path = music_path
+        self._used_pexels_ids: set[int] = set()
         self.trending = Reddit(
             gemini_api_key,
             discord=self.discord,
@@ -205,6 +206,7 @@ class Auto(Channel):
         return script
 
     def render_segments(self, script: dict, context: AutoContext) -> list[Path]:
+        self._used_pexels_ids.clear()
         clip_paths = []
         for i, seg in enumerate(script["segments"]):
             print(f"Segment {i}: {seg['narration'][:60]}...")
@@ -364,7 +366,8 @@ class Auto(Channel):
     def fetch_stock_video(self, query: str, out_path: Path) -> None:
         """Pexels video search for vertical Shorts/TikTok. Prefers
         portrait clips, falls back to any orientation if portrait is
-        empty, then picks the file closest to 1080px wide."""
+        empty, then picks the file closest to 1080px wide. Skips video
+        IDs already used earlier in this render so clips don't repeat."""
         headers = {"Authorization": self.pexels_api_key}
         candidates = [query]
         words = query.split()
@@ -375,7 +378,7 @@ class Auto(Channel):
         for q in candidates:
             for orientation in ("portrait", "square", None):
                 try:
-                    params = {"query": q, "per_page": 5}
+                    params = {"query": q, "per_page": 15}
                     if orientation:
                         params["orientation"] = orientation
 
@@ -395,6 +398,10 @@ class Auto(Channel):
                         continue
 
                     for video in videos:
+                        video_id = video.get("id")
+                        if video_id is not None and video_id in self._used_pexels_ids:
+                            continue
+
                         files = [
                             f
                             for f in video.get("video_files", [])
@@ -407,6 +414,8 @@ class Auto(Channel):
                         download = requests.get(best["link"], timeout=120)
                         download.raise_for_status()
                         out_path.write_bytes(download.content)
+                        if video_id is not None:
+                            self._used_pexels_ids.add(video_id)
                         if q != query or orientation != "portrait":
                             print(
                                 f"Pexels used query={q!r} orientation={orientation or 'any'} "
@@ -414,7 +423,9 @@ class Auto(Channel):
                             )
                         return
 
-                    last_error = RuntimeError(f"No mp4 files in Pexels results for query: {q}")
+                    last_error = RuntimeError(
+                        f"No unused mp4 Pexels results for query: {q}"
+                    )
                 except Exception as e:
                     last_error = e
                     print(f"Pexels fetch failed for {q!r} ({orientation or 'any'}): {e}")
