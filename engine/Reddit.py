@@ -42,10 +42,17 @@ class Reddit(Trending):
         return research_context
 
     def scheduled_rank(self, now: datetime | None = None) -> int:
-        """Odd Denver day → ranks 1–3; even day → 4–6. Slot from local hour."""
+        """Denver day bands by publish slot (5am/1pm/8pm → 1/2/3):
+        day % 3 == 0 → ranks 7–9 (takes priority);
+        else odd day → 1–3; even day → 4–6."""
         local = now.astimezone(DENVER) if now is not None else datetime.now(DENVER)
         slot = SLOT_BY_HOUR.get(local.hour, 1)
-        base = 0 if local.day % 2 == 1 else 3
+        if local.day % 3 == 0:
+            base = 6
+        elif local.day % 2 == 1:
+            base = 0
+        else:
+            base = 3
         return base + slot
 
     def pick_topic(self, research_context: str) -> tuple[str, str]:
@@ -81,7 +88,7 @@ class Reddit(Trending):
 
             r = requests.get(
                 f"https://oauth.reddit.com/r/{self.subreddit}/top",
-                params={"t": "day", "limit": 10},
+                params={"t": "day", "limit": 9},
                 headers=headers(Authorization=f"bearer {access_token}"),
                 timeout=HTTP_TIMEOUT,
             )
