@@ -1,6 +1,6 @@
-# auto-tube
+# auto-tube | Multi-channel short-form video production. 
 
-Multi-channel short-form video production. Each channel subclasses
+Each channel subclasses
 `Channel`, fills in content + editing style, and shares Discord, quality
 gating, voice, captions, Drive, and (optionally) trending research.
 
