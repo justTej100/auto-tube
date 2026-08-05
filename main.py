@@ -5,6 +5,7 @@ channel that has to keep working every single run without anyone touching
 it, per its design goal."""
 
 import os
+from pathlib import Path
 
 from engine.Auto import Auto
 from engine.RankedNiche import RankedNiche
@@ -59,6 +60,8 @@ def main():
         print("RankedNiche not configured -- skipping straight to Auto.")
 
     print("Running Auto...")
+    voice = (os.environ.get("AUTO_VOICE") or "voice_reference").strip()
+    voice_mp3 = Path("assets/auto") / f"{voice}.mp3"
     Auto(
         gemini_api_key=require("GEMINI_API_KEY"),
         hf_token=os.environ.get("HF_TOKEN") or None,
@@ -71,6 +74,9 @@ def main():
         video_topic=os.environ.get("VIDEO_TOPIC") or None,
         reddit_client_id=os.environ.get("REDDIT_CLIENT_ID") or None,
         reddit_client_secret=os.environ.get("REDDIT_CLIENT_SECRET") or None,
+        voice_wav=voice_mp3.with_suffix(".wav"),
+        voice_mp3=voice_mp3,
+        voice_converted=Path("build/auto") / f"{voice_mp3.stem}_converted.wav",
     ).run()
 
 

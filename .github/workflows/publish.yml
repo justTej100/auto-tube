@@ -13,6 +13,19 @@ on:
         description: 'Optional topic override (leave blank to research trending)'
         required: false
         default: ''
+      voice:
+        description: 'Auto voice reference (assets/auto/*.mp3)'
+        type: choice
+        required: false
+        default: voice_reference
+        options:
+          - voice_reference
+          - male/male1 - dan
+          - male/male2 - hale
+          - male/male3 - joe
+          - female/female1 - korina
+          - female/female2 - hope
+          - female/female3 - jessica
 
 jobs:
   publish:
@@ -73,6 +86,8 @@ jobs:
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
           # Blank on schedule / blank dispatch input => trending research in main.py
           VIDEO_TOPIC: ${{ inputs.topic }}
+          # Schedule runs have no inputs.voice => default voice_reference in main.py
+          AUTO_VOICE: ${{ inputs.voice }}
           HF_HOME: ${{ github.workspace }}/hf_cache
 
       - name: Notify Discord on failure
