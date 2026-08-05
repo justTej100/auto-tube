@@ -4,7 +4,7 @@ Each channel subclasses
 `Channel`, fills in content + editing style, and shares Discord, quality
 gating, voice, captions, Drive, and (optionally) trending research.
 
-Runs **3 times a day** via GitHub Actions (5am / 1pm / 8pm Denver time).
+Runs **3 times a day** via GitHub Actions (5am / 1pm / 8pm Edmonton time).
 No auto-publish to YouTube — you review the Drive link first.
 
 Requires **Python 3.11** (chatterbox-tts).

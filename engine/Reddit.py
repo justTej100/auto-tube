@@ -10,8 +10,8 @@ import requests
 from engine.DiscordNotify import DiscordNotifier
 from engine.Trending import HTTP_TIMEOUT, SourceAttempt, Trending, headers
 
-DENVER = ZoneInfo("America/Denver")
-# Publish hours (Denver local): 5am, 1pm, 8pm → slots 1, 2, 3.
+EDMONTON = ZoneInfo("America/Edmonton")
+# Publish hours (Edmonton local): 5am, 1pm, 8pm → slots 1, 2, 3.
 SLOT_BY_HOUR = {5: 1, 13: 2, 20: 3}
 
 
@@ -42,10 +42,10 @@ class Reddit(Trending):
         return research_context
 
     def scheduled_rank(self, now: datetime | None = None) -> int:
-        """Denver day bands by publish slot (5am/1pm/8pm → 1/2/3):
+        """Edmonton day bands by publish slot (5am/1pm/8pm → 1/2/3):
         day % 3 == 0 → ranks 7–9 (takes priority);
         else odd day → 1–3; even day → 4–6."""
-        local = now.astimezone(DENVER) if now is not None else datetime.now(DENVER)
+        local = now.astimezone(EDMONTON) if now is not None else datetime.now(EDMONTON)
         slot = SLOT_BY_HOUR.get(local.hour, 1)
         if local.day % 3 == 0:
             base = 6
@@ -62,7 +62,7 @@ class Reddit(Trending):
         rank = self.scheduled_rank()
         idx = min(rank, len(titles)) - 1
         topic = titles[idx]
-        print(f"Schedule pick: Denver rank {rank} → #{idx + 1}: {topic}")
+        print(f"Schedule pick: Edmonton rank {rank} → #{idx + 1}: {topic}")
         return topic, f"schedule rank {rank}"
 
     def fetch_reddit_oauth(self) -> SourceAttempt:
