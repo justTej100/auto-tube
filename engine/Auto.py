@@ -49,13 +49,16 @@ SCRIPT_JSON_SCHEMA = {
                 "required": ["speaker", "narration", "image_query"],
                 "additionalProperties": False,
             },
-            "minItems": 6,
-            "maxItems": 10,
+            "minItems": 5,
+            "maxItems": 8,
         },
     },
     "required": ["title", "description", "op_gender", "other_gender", "segments"],
     "additionalProperties": False,
 }
+
+# ~150 wpm spoken → 150 words ≈ ~60s.
+MAX_STORY_WORDS = 150
 
 SCRIPT_PROMPT_TEMPLATE = """Write a short-video script based on the material below,
 using two voices: OP and OTHER.
@@ -85,12 +88,13 @@ Rules:
 - Short, punchy, spoken-out-loud sentences. No em dashes, no "it's not
   just X, it's Y," no corporate or AI-sounding words like leverage,
   delve, testament, robust.
+- The FULL spoken story must be under 60 seconds (~150 words total
+  across every line). Prefer 5 to 8 short lines. Cut ruthlessly.
 - Lean into whichever side of the conflict the details make sharper.
   Don't soften it into "both sides have a point." Let the dialogue
   carry the edge, don't add narrator commentary telling people who's
   right.
 - End on the actual stakes or tension, not a flat summary.
-- 6 to 10 lines total.
 - Never say "Reddit", "Reddit story", "post blew up", or similar in
   narration, title, or description. Tell it as a personal story.
 - Never put the words OP or OTHER in any narration text. Those labels
@@ -111,7 +115,7 @@ Return JSON in this exact shape:
   "segments": [
     {{"speaker": "op", "narration": "...", "image_query": "specific vivid video search, 3-6 words"}},
     {{"speaker": "other", "narration": "...", "image_query": "..."}},
-    ... (6 to 10 segments total)
+    ... (5 to 8 segments total)
   ]
 }}
 
@@ -220,12 +224,22 @@ class Auto(Channel):
                 context.research_context,
             )
             script = self.normalize_script(script)
+            words = self.story_word_count(script)
+            print(f"Script word count: {words} (max {MAX_STORY_WORDS} ≈ 60s)")
+            if words > MAX_STORY_WORDS:
+                raise RuntimeError(
+                    f"Script too long for a 60s video ({words} words > {MAX_STORY_WORDS})"
+                )
             context.script_provider = provider
             return script
 
         script = self.generate_until_quality(once, max_attempts=MAX_QUALITY_RETRIES)
         print(f"Script generated via {context.script_provider}")
         return script
+
+    @staticmethod
+    def story_word_count(script: dict) -> int:
+        return sum(len((seg.get("narration") or "").split()) for seg in script["segments"])
 
     @staticmethod
     def normalize_script(script: dict) -> dict:
