@@ -173,6 +173,7 @@ class Assemble:
         caption_text: str,
         precomputed_words: list[tuple[str, float, float]] | None = None,
     ) -> None:
+        # Audio is the duration authority — never cut narration short.
         duration = self.voice.wav_duration_seconds(audio_path)
 
         # Temp caption script for ffmpeg's subtitles filter. Extension must
@@ -193,20 +194,22 @@ class Assemble:
 
         caption_filter_path = self.escape_for_filtergraph(caption_path)
 
+        # Loop stock video; end exactly when narration ends (-shortest on
+        # infinite video + finite audio). apad keeps the last syllable from
+        # getting eaten by the AAC encoder. No -t — that fought full audio.
         subprocess.run(
             [
                 "ffmpeg", "-y",
                 "-stream_loop", "-1",
                 "-i", str(video_path),
                 "-i", str(audio_path),
-                "-t", str(duration),
                 "-filter_complex",
                 f"[0:v]scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=increase,"
                 f"crop={VIDEO_WIDTH}:{VIDEO_HEIGHT},"
                 f"setsar=1,fps=30,setpts=PTS-STARTPTS,"
                 f"subtitles='{caption_filter_path}'[v];"
-                # Explicit audio path so dual-voice segments share identical format.
-                f"[1:a]aformat=sample_rates=44100:channel_layouts=stereo[a]",
+                f"[1:a]aformat=sample_rates=44100:channel_layouts=stereo,"
+                f"apad=pad_dur=0.08[a]",
                 "-map", "[v]", "-map", "[a]",
                 "-c:v", "libx264", "-preset", "veryfast",
                 "-pix_fmt", "yuv420p",
@@ -219,7 +222,7 @@ class Assemble:
         )
 
     def concat_clips(self, clip_paths: list[Path], out_path: Path) -> None:
-        """Filter-based concat so OP/OTHER AAC streams join without clicks."""
+        """Stitch clips back-to-back; each clip's full audio plays before the next."""
         if len(clip_paths) == 1:
             subprocess.run(
                 ["ffmpeg", "-y", "-i", str(clip_paths[0]), "-c", "copy", str(out_path)],
@@ -231,17 +234,23 @@ class Assemble:
         for p in clip_paths:
             inputs += ["-i", str(p)]
         n = len(clip_paths)
-        stream_pairs = "".join(f"[{i}:v:0][{i}:a:0]" for i in range(n))
+        # Reset timestamps per stream so concat doesn't drop early audio.
+        normalized = "".join(
+            f"[{i}:v]setpts=PTS-STARTPTS[v{i}];"
+            f"[{i}:a]asetpts=PTS-STARTPTS,"
+            f"aformat=sample_rates=44100:channel_layouts=stereo[a{i}];"
+            for i in range(n)
+        )
+        stream_pairs = "".join(f"[v{i}][a{i}]" for i in range(n))
         filter_complex = (
-            f"{stream_pairs}concat=n={n}:v=1:a=1[v][a];"
-            f"[a]aformat=sample_rates=44100:channel_layouts=stereo[aout]"
+            f"{normalized}{stream_pairs}concat=n={n}:v=1:a=1[v][a]"
         )
         subprocess.run(
             [
                 "ffmpeg", "-y",
                 *inputs,
                 "-filter_complex", filter_complex,
-                "-map", "[v]", "-map", "[aout]",
+                "-map", "[v]", "-map", "[a]",
                 "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-ar", "44100", "-ac", "2",
                 str(out_path),

@@ -99,33 +99,6 @@ class Voice:
         peak = wav.abs().max().clamp(min=1e-8)
         wav = wav / peak * 0.95
         ta.save(str(out_path), wav, model.sr)
-        # Drop lead-in silence so mid-sentence OTHER handoffs don't gap.
-        self.trim_wav_silence(out_path)
-
-    def trim_wav_silence(self, path: Path, threshold_db: float = -40.0) -> None:
-        """In-place trim of start/end silence — keeps dialogue stitches tight.
-        Keeps the original if trim fails or wipes the file."""
-        trimmed = path.with_name(path.stem + ".trim.wav")
-        try:
-            subprocess.run(
-                [
-                    "ffmpeg", "-y", "-i", str(path),
-                    "-af",
-                    f"silenceremove=start_periods=1:start_silence=0.02:start_threshold={threshold_db}dB:"
-                    f"stop_periods=1:stop_silence=0.05:stop_threshold={threshold_db}dB",
-                    str(trimmed),
-                ],
-                check=True,
-                capture_output=True,
-            )
-            if trimmed.exists() and trimmed.stat().st_size > 1000:
-                trimmed.replace(path)
-            elif trimmed.exists():
-                trimmed.unlink()
-        except Exception as e:
-            print(f"Silence trim skipped ({e})")
-            if trimmed.exists():
-                trimmed.unlink(missing_ok=True)
 
     def wav_duration_seconds(self, path: Path) -> float:
         with wave.open(str(path), "rb") as f:

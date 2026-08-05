@@ -273,6 +273,8 @@ class Auto(Channel):
             clip_path = self.workdir / f"seg_{i}.mp4"
 
             self.voice.synthesize_speech(narration, audio_path, ref)
+            dur = self.voice.wav_duration_seconds(audio_path)
+            print(f"  TTS {dur:.2f}s → {audio_path.name}")
             self.fetch_stock_video(seg["image_query"], video_path)
             self.assemble.build_segment_clip(
                 video_path, audio_path, clip_path, narration
