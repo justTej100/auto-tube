@@ -17,19 +17,19 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 180
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         id: checkout
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         id: setup-python
         with:
           python-version: '3.11'   # chatterbox-tts requires 3.11 specifically
 
       - name: Cache TTS + caption models
         id: cache-chatterbox-model
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: hf_cache/
           # Chatterbox-Turbo + faster-whisper model downloads (HF_HOME).
@@ -39,7 +39,7 @@ jobs:
 
       - name: Cache converted voice refs
         id: cache-voice-refs
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           # mp3→wav conversions named after each source stem
           # (build/auto/voices/male1 - dan.wav, etc.)
@@ -57,9 +57,6 @@ jobs:
       - name: Run channels
         id: run-pipeline
         shell: bash
-        run: |
-          set -o pipefail
-          python main.py 2>&1 | tee pipeline_output.log
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -82,6 +79,41 @@ jobs:
           # Blank on schedule / blank dispatch input => trending research in main.py
           VIDEO_TOPIC: ${{ inputs.topic }}
           HF_HOME: ${{ github.workspace }}/hf_cache
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TOPIC: ${{ inputs.topic || 'trending research' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          python main.py > >(tee pipeline_output.log) 2>&1 &
+          PIPE_PID=$!
+
+          (
+            sleep 1800
+            if kill -0 "$PIPE_PID" 2>/dev/null; then
+              echo "Pipeline still running after 30 minutes — notifying Discord."
+              if [ -n "${DISCORD_WEBHOOK_URL:-}" ]; then
+                TAIL=""
+                if [ -f pipeline_output.log ]; then
+                  TAIL=$(tail -n 15 pipeline_output.log | sed 's/`/'"'"'/g')
+                fi
+                CONTENT=$(printf '⏳ Video still rendering after **30 minutes**.\nTopic: %s\nRun: %s\nJob limit: 3 hours.\n```\n%s\n```' \
+                  "$TOPIC" "$RUN_URL" "${TAIL:-(no log yet)}")
+                CONTENT="${CONTENT:0:1900}"
+                jq -n --arg content "$CONTENT" --arg username "auto-tube devops" \
+                  '{content: $content, username: $username}' \
+                  | curl -sS -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK_URL" \
+                  >/dev/null || echo "Discord long-running notify failed (non-fatal)"
+              fi
+            fi
+          ) &
+          WATCHDOG_PID=$!
+
+          wait "$PIPE_PID"
+          STATUS=$?
+          kill "$WATCHDOG_PID" 2>/dev/null || true
+          wait "$WATCHDOG_PID" 2>/dev/null || true
+          exit "$STATUS"
 
       - name: Notify Discord on failure
         if: failure()
