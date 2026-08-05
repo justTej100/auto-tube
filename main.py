@@ -59,6 +59,13 @@ def main():
         print("RankedNiche not configured -- skipping straight to Auto.")
 
     print("Running Auto...")
+    single_voice = os.environ.get("AUTO_SINGLE_VOICE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if single_voice:
+        print("AUTO_SINGLE_VOICE set — one random voice for the whole video.")
     Auto(
         gemini_api_key=require("GEMINI_API_KEY"),
         hf_token=os.environ.get("HF_TOKEN") or None,
@@ -71,6 +78,7 @@ def main():
         video_topic=os.environ.get("VIDEO_TOPIC") or None,
         reddit_client_id=os.environ.get("REDDIT_CLIENT_ID") or None,
         reddit_client_secret=os.environ.get("REDDIT_CLIENT_SECRET") or None,
+        single_voice=single_voice,
     ).run()
 
 

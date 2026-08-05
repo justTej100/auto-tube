@@ -158,6 +158,7 @@ class Auto(Channel):
         voice_mp3: Path = Path("assets/auto/voice_reference.mp3"),
         voice_converted: Path = Path("build/auto/voice_reference_converted.wav"),
         music_path: Path = Path("assets/auto/background_music.mp3"),
+        single_voice: bool = False,
     ):
         super().__init__(
             gemini_api_key,
@@ -176,6 +177,7 @@ class Auto(Channel):
         self.drive_folder_id = drive_folder_id
         self.video_topic = video_topic
         self.music_path = music_path
+        self.single_voice = single_voice
         self._used_pexels_ids: set[int] = set()
         self.trending = Reddit(
             gemini_api_key,
@@ -392,7 +394,8 @@ class Auto(Channel):
         return wavs
 
     def pick_speaker_refs(self, script: dict) -> dict[str, Path]:
-        """Random distinct male/female refs for OP/OTHER from story genders."""
+        """Pick TTS refs from story genders. Dual-voice by default;
+        single_voice (oneShot) uses one random clip for every speaker."""
         op_gender = script.get("op_gender") or "male"
         if op_gender not in ("male", "female"):
             op_gender = "male"
@@ -400,6 +403,15 @@ class Auto(Channel):
         other_gender = script.get("other_gender")
         if has_other and other_gender not in ("male", "female"):
             other_gender = "female" if op_gender == "male" else "male"
+
+        if self.single_voice:
+            # Narrator gender = OP; one random male/female clip for the whole video.
+            wav = self.pick_gender_clips(op_gender, 1)[0]
+            print(f"Voices (single): {wav.name} ({op_gender})")
+            refs = {"op": wav}
+            if has_other:
+                refs["other"] = wav
+            return refs
 
         if has_other and other_gender == op_gender:
             op_wav, other_wav = self.pick_gender_clips(op_gender, 2)

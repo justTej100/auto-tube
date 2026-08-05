@@ -1,0 +1,193 @@
+name: One-shot (single voice)
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: 'Optional topic override (leave blank to research trending)'
+        required: false
+        default: ''
+
+jobs:
+  oneshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+        id: checkout
+
+      - uses: actions/setup-python@v6
+        id: setup-python
+        with:
+          python-version: '3.11'   # chatterbox-tts requires 3.11 specifically
+
+      - name: Cache TTS + caption models
+        id: cache-chatterbox-model
+        uses: actions/cache@v5
+        with:
+          path: hf_cache/
+          # Chatterbox-Turbo + faster-whisper model downloads (HF_HOME).
+          # Not the clone reference clips — those are cached below.
+          # Bump suffix when either model changes.
+          key: chatterbox-whisper-models-v1
+
+      - name: Cache converted voice refs
+        id: cache-voice-refs
+        uses: actions/cache@v5
+        with:
+          # mp3→wav conversions named after each source stem
+          # (build/auto/voices/male1 - dan.wav, etc.)
+          path: build/auto/voices/
+          key: auto-voice-wavs-v2-${{ hashFiles('assets/auto/male/*.mp3', 'assets/auto/female/*.mp3', 'assets/auto/voice_reference.mp3') }}
+
+      - name: Install ffmpeg
+        id: install-ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install Python dependencies
+        id: install-deps
+        run: pip install -r requirements.txt
+
+      - name: Run channels
+        id: run-pipeline
+        shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          # Legacy unprefixed Auto secrets mapped to AUTO_* env names used by main.py
+          AUTO_GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          AUTO_GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          AUTO_GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          AUTO_DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+          AUTO_DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          RANKEDNICHE_DISCORD_WEBHOOK_URL: ${{ secrets.RANKEDNICHE_DISCORD_WEBHOOK_URL }}
+          RANKEDNICHE_GOOGLE_CLIENT_ID: ${{ secrets.RANKEDNICHE_GOOGLE_CLIENT_ID }}
+          RANKEDNICHE_GOOGLE_CLIENT_SECRET: ${{ secrets.RANKEDNICHE_GOOGLE_CLIENT_SECRET }}
+          RANKEDNICHE_GOOGLE_REFRESH_TOKEN: ${{ secrets.RANKEDNICHE_GOOGLE_REFRESH_TOKEN }}
+          RANKEDNICHE_DRIVE_INTAKE_FOLDER_ID: ${{ secrets.RANKEDNICHE_DRIVE_INTAKE_FOLDER_ID }}
+          RANKEDNICHE_DRIVE_OUTPUT_FOLDER_ID: ${{ secrets.RANKEDNICHE_DRIVE_OUTPUT_FOLDER_ID }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          # Blank dispatch input => trending research in main.py
+          VIDEO_TOPIC: ${{ inputs.topic }}
+          HF_HOME: ${{ github.workspace }}/hf_cache
+          # One random voice from male|female matching OP gender — no OTHER clone.
+          AUTO_SINGLE_VOICE: "1"
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TOPIC: ${{ inputs.topic || 'trending research' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          python main.py > >(tee pipeline_output.log) 2>&1 &
+          PIPE_PID=$!
+
+          (
+            sleep 1800
+            if kill -0 "$PIPE_PID" 2>/dev/null; then
+              echo "Pipeline still running after 30 minutes — notifying Discord."
+              if [ -n "${DISCORD_WEBHOOK_URL:-}" ]; then
+                TAIL=""
+                if [ -f pipeline_output.log ]; then
+                  TAIL=$(tail -n 15 pipeline_output.log | sed 's/`/'"'"'/g')
+                fi
+                CONTENT=$(printf '⏳ One-shot video still rendering after **30 minutes**.\nTopic: %s\nRun: %s\nJob limit: 3 hours.\n```\n%s\n```' \
+                  "$TOPIC" "$RUN_URL" "${TAIL:-(no log yet)}")
+                CONTENT="${CONTENT:0:1900}"
+                jq -n --arg content "$CONTENT" --arg username "auto-tube devops" \
+                  '{content: $content, username: $username}' \
+                  | curl -sS -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK_URL" \
+                  >/dev/null || echo "Discord long-running notify failed (non-fatal)"
+              fi
+            fi
+          ) &
+          WATCHDOG_PID=$!
+
+          wait "$PIPE_PID"
+          STATUS=$?
+          kill "$WATCHDOG_PID" 2>/dev/null || true
+          wait "$WATCHDOG_PID" 2>/dev/null || true
+          exit "$STATUS"
+
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TOPIC: ${{ inputs.topic || 'trending research' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "::error::DISCORD_WEBHOOK_URL secret is not set — cannot send failure notification"
+            exit 1
+          fi
+
+          FAILED_STEP="unknown"
+          if [ "${{ steps.checkout.outcome }}" = "failure" ]; then
+            FAILED_STEP="Checkout"
+          elif [ "${{ steps.setup-python.outcome }}" = "failure" ]; then
+            FAILED_STEP="Setup Python"
+          elif [ "${{ steps.cache-chatterbox-model.outcome }}" = "failure" ]; then
+            FAILED_STEP="Cache TTS + caption models"
+          elif [ "${{ steps.cache-voice-refs.outcome }}" = "failure" ]; then
+            FAILED_STEP="Cache converted voice refs"
+          elif [ "${{ steps.install-ffmpeg.outcome }}" = "failure" ]; then
+            FAILED_STEP="Install ffmpeg"
+          elif [ "${{ steps.install-deps.outcome }}" = "failure" ]; then
+            FAILED_STEP="Install Python dependencies"
+          elif [ "${{ steps.run-pipeline.outcome }}" = "failure" ]; then
+            FAILED_STEP="Run pipeline"
+          fi
+
+          echo "::error::Pipeline failed at step: ${FAILED_STEP} (topic: ${TOPIC})"
+
+          ERROR_TAIL="(no pipeline_output.log -- failure happened before the pipeline ran)"
+          if [ -f pipeline_output.log ]; then
+            ERROR_TAIL=$(awk '
+              /^Traceback \(most recent call last\):/ { capturing = 1; buf = $0; next }
+              capturing { buf = buf ORS $0 }
+              END { if (buf != "") print buf }
+            ' pipeline_output.log)
+            if [ -z "$ERROR_TAIL" ]; then
+              ERROR_TAIL=$(tail -n 30 pipeline_output.log)
+            fi
+          fi
+
+          CONTENT=$(printf '❌ One-shot CI failed at step: **%s**\nTopic: %s\nRun: %s\n```\n%s\n```' \
+            "$FAILED_STEP" "$TOPIC" "$RUN_URL" "$ERROR_TAIL")
+
+          MAX_LEN=2000
+          OFFSET=0
+          TOTAL_LEN=${#CONTENT}
+          PART=0
+
+          while [ "$OFFSET" -lt "$TOTAL_LEN" ]; do
+            CHUNK="${CONTENT:$OFFSET:$MAX_LEN}"
+            PART=$((PART + 1))
+            PAYLOAD=$(jq -n --arg content "$CHUNK" --arg username "auto-tube devops" \
+              '{content: $content, username: $username}')
+
+            HTTP_CODE=$(curl -sS -o /tmp/discord_response.txt -w "%{http_code}" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD" \
+              "$DISCORD_WEBHOOK_URL") || {
+                echo "::error::Discord webhook request failed (curl transport error) while notifying about step: ${FAILED_STEP}"
+                exit 1
+              }
+
+            if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+              echo "::error::Discord webhook failed with HTTP ${HTTP_CODE} while notifying about step: ${FAILED_STEP}"
+              cat /tmp/discord_response.txt || true
+              exit 1
+            fi
+
+            OFFSET=$((OFFSET + MAX_LEN))
+            if [ "$OFFSET" -lt "$TOTAL_LEN" ]; then
+              sleep 0.4
+            fi
+          done
+
+          echo "Discord failure notification sent for step: ${FAILED_STEP} (${PART} message(s))"
