@@ -6,6 +6,7 @@ configured."""
 
 from __future__ import annotations
 
+import random
 import time
 from datetime import date
 from pathlib import Path
@@ -19,85 +20,104 @@ from engine.Reddit import Reddit
 MAX_QUALITY_RETRIES = 3
 MAX_HF_JSON_RETRIES = 3
 
+MALE_VOICE_DIR = Path("assets/auto/male")
+FEMALE_VOICE_DIR = Path("assets/auto/female")
+VOICE_CACHE_DIR = Path("build/auto/voices")
+FALLBACK_VOICE_MP3 = Path("assets/auto/voice_reference.mp3")
+
 SCRIPT_JSON_SCHEMA = {
     "type": "object",
     "properties": {
         "title": {"type": "string"},
         "description": {"type": "string"},
+        "op_gender": {"type": "string", "enum": ["male", "female"]},
+        "other_gender": {
+            "anyOf": [
+                {"type": "string", "enum": ["male", "female"]},
+                {"type": "null"},
+            ]
+        },
         "segments": {
             "type": "array",
             "items": {
                 "type": "object",
                 "properties": {
+                    "speaker": {"type": "string", "enum": ["op", "other"]},
                     "narration": {"type": "string"},
                     "image_query": {"type": "string"},
                 },
-                "required": ["narration", "image_query"],
+                "required": ["speaker", "narration", "image_query"],
                 "additionalProperties": False,
             },
             "minItems": 6,
             "maxItems": 10,
         },
     },
-    "required": ["title", "description", "segments"],
+    "required": ["title", "description", "op_gender", "other_gender", "segments"],
     "additionalProperties": False,
 }
 
-SCRIPT_PROMPT_TEMPLATE = """Write a script for a short, punchy YouTube video about: {topic}
-{research_block}
-{reddit_story_block}
-You're writing for a fast-scrolling audience who will swipe away in 2
-seconds if they're not hooked immediately. Follow these rules:
+SCRIPT_PROMPT_TEMPLATE = """Write a short-video script based on the material below,
+using two voices: OP and OTHER.
 
-- Ground the script in the research above when it's provided -- use real
-  current details, names, numbers, and angles from that material. Do not
-  invent a generic "surprising fact" that ignores what's actually trending.
-- Segment 1 MUST open with a surprising claim, a question, or a
-  "you'd think X, but actually Y" twist -- never a boring setup line like
-  "Did you know..." or "Today we're talking about...". Earn the next
-  3 seconds.
-- Vary sentence rhythm. Mix short punchy lines with longer ones. Avoid
-  robotic uniform pacing where every segment is the same length and shape.
-- Write like a person talking to a friend, not a Wikipedia summary. Use
-  natural spoken phrasing, not formal written English.
-- Never use em dashes, en dashes, or hyphen-as-pause in narration
-  (no "—", "–", or "word - word"). Use commas, periods, or short new
-  sentences instead. Captions are burned on screen for TikTok / Shorts.
-- Avoid AI-writing tells: no "leverage", "delve", "landscape", "robust",
-  "testament", "pivotal", "seamless", or similar corporate/AI vocabulary.
-  No "it's not just X, it's Y" constructions. No vague "experts believe"
-  attributions -- be specific or don't claim it.
-- Include concrete numbers, measurements, or named specifics wherever
-  possible instead of vague claims.
-- End on a payoff, a twist, or a thought that lingers -- not a flat
-  restatement of the topic.
+Topic: {topic}
+{research_block}
+OP is the poster. OP narrates the entire story in first person ("I",
+"my"), and also speaks their own quoted lines. OTHER is the other
+person in the conflict (spouse, coworker, friend) and speaks ONLY when
+directly quoted.
+
+Rules:
+
+- Every OTHER line must come right after an OP line that ends in an
+  attribution with no closing punctuation, like "she said," or "he told
+  me," so OTHER picks up mid-sentence. Never give OTHER a line without
+  that attribution right before it.
+- Only quote OTHER for lines that are actually in the material or clearly
+  implied as something they said. Don't invent dialogue. If there are
+  no clear quotes, use zero OTHER lines.
+- Use 2 to 3 OTHER lines max. Never more, never back to back.
+- OP stays first person the whole time. Never slips into "he" or "the
+  poster."
+- Open and close on OP. Never start or end on an OTHER line.
+- Segment 1 has to hook immediately -- a surprising claim, a twist, or
+  dropping straight into the situation. No "so this happened," "let me
+  explain," "Did you know," or "Today we're talking about."
+- Short, punchy, spoken-out-loud sentences. No em dashes, no "it's not
+  just X, it's Y," no corporate or AI-sounding words like leverage,
+  delve, testament, robust.
+- Lean into whichever side of the conflict the details make sharper.
+  Don't soften it into "both sides have a point." Let the dialogue
+  carry the edge, don't add narrator commentary telling people who's
+  right.
+- End on the actual stakes or tension, not a flat summary.
+- 6 to 10 lines total.
+- Never say "Reddit", "Reddit story", "post blew up", or similar in
+  narration, title, or description. Tell it as a personal story.
+- Never put the words OP or OTHER in any narration text. Those labels
+  are JSON metadata only.
+- Infer op_gender and other_gender (male/female) from the story
+  context. If there are zero OTHER lines, set other_gender to null.
 - For each segment's image_query, write a SPECIFIC stock-VIDEO search
-  query (3-6 concrete words) that a Pexels video search can match -- not
-  abstract concepts. Prefer filmable vertical/portrait scenes with clear
-  subjects and action (e.g. "crowded subway platform rush", "scientist
-  lab microscope closeup") over vague themes ("emotion", "future",
-  "technology").
+  query (3-6 concrete words) that a Pexels video search can match --
+  not abstract concepts. Prefer filmable vertical/portrait scenes with
+  clear subjects and action.
 
 Return JSON in this exact shape:
 {{
   "title": "...",
   "description": "...",
+  "op_gender": "male",
+  "other_gender": "female",
   "segments": [
-    {{"narration": "one or two sentences", "image_query": "specific vivid video search, 3-6 words"}},
+    {{"speaker": "op", "narration": "...", "image_query": "specific vivid video search, 3-6 words"}},
+    {{"speaker": "other", "narration": "...", "image_query": "..."}},
     ... (6 to 10 segments total)
   ]
 }}
 
 JSON rules: use double quotes only, no trailing commas, no comments,
 and escape any double quotes inside string values as \\". """
-
-
-REDDIT_STORY_BLOCK = """
-This topic is a Reddit story. Write the video as a narrative ABOUT that
-Reddit post -- what the post says happened, why it blew up, the human
-angle -- not a generic essay on a loosely related theme. Stay faithful
-to the Reddit material in the research above.
-"""
 
 
 class AutoContext:
@@ -181,7 +201,7 @@ class Auto(Channel):
                 research_sources=(),
             )
 
-        print("Researching today's Reddit story...")
+        print("Researching today's top posts...")
         result = self.trending.research()
         print(f"Topic selected via {result.topic_picker}: {result.topic}")
         return AutoContext(
@@ -199,7 +219,7 @@ class Auto(Channel):
                 context.research_context,
             )
             context.script_provider = provider
-            return script
+            return self.normalize_script(script)
 
         script = self.generate_until_quality(once, max_attempts=MAX_QUALITY_RETRIES)
         print(f"Script generated via {context.script_provider}")
@@ -207,14 +227,17 @@ class Auto(Channel):
 
     def render_segments(self, script: dict, context: AutoContext) -> list[Path]:
         self._used_pexels_ids.clear()
+        voices = self.pick_speaker_voices(script)
         clip_paths = []
         for i, seg in enumerate(script["segments"]):
-            print(f"Segment {i}: {seg['narration'][:60]}...")
+            speaker = seg.get("speaker", "op")
+            ref = voices.get(speaker) or voices["op"]
+            print(f"Segment {i} [{speaker}]: {seg['narration'][:60]}...")
             audio_path = self.workdir / f"seg_{i}.wav"
             video_path = self.workdir / f"seg_{i}_source.mp4"
             clip_path = self.workdir / f"seg_{i}.mp4"
 
-            self.voice.synthesize_speech(seg["narration"], audio_path, self.reference_clip)
+            self.voice.synthesize_speech(seg["narration"], audio_path, ref)
             self.fetch_stock_video(seg["image_query"], video_path)
             self.assemble.build_segment_clip(
                 video_path, audio_path, clip_path, seg["narration"]
@@ -270,12 +293,93 @@ class Auto(Channel):
         topic: str,
         research_context: str | None,
     ) -> str:
-        # Auto always researches via Reddit, so researched runs get the story block.
         return SCRIPT_PROMPT_TEMPLATE.format(
             topic=topic,
             research_block=self.format_research_block(research_context),
-            reddit_story_block=REDDIT_STORY_BLOCK if research_context else "",
         )
+
+    @staticmethod
+    def normalize_script(script: dict) -> dict:
+        """Coerce Gemini gender/speaker labels to the schema we render with."""
+        gender_aliases = {
+            "male": "male",
+            "man": "male",
+            "m": "male",
+            "female": "female",
+            "woman": "female",
+            "f": "female",
+        }
+
+        def gender(value) -> str | None:
+            if value is None or value == "":
+                return None
+            return gender_aliases.get(str(value).strip().lower())
+
+        script["op_gender"] = gender(script.get("op_gender")) or "male"
+        script["other_gender"] = gender(script.get("other_gender"))
+        for seg in script["segments"]:
+            sp = str(seg.get("speaker") or "op").strip().lower()
+            seg["speaker"] = "other" if sp in ("other", "quote", "quoted") else "op"
+        if not any(seg["speaker"] == "other" for seg in script["segments"]):
+            script["other_gender"] = None
+        return script
+
+    def gender_mp3s(self, gender: str) -> list[Path]:
+        folder = MALE_VOICE_DIR if gender == "male" else FEMALE_VOICE_DIR
+        return sorted(folder.glob("*.mp3"))
+
+    def resolve_voice_mp3(self, mp3: Path) -> Path:
+        return self.voice.resolve_mp3_by_stem(mp3, VOICE_CACHE_DIR)
+
+    def fallback_voice(self) -> Path:
+        if self.reference_clip is not None:
+            return self.reference_clip
+        if FALLBACK_VOICE_MP3.exists():
+            return self.resolve_voice_mp3(FALLBACK_VOICE_MP3)
+        raise FileNotFoundError(
+            f"No voice clips in {MALE_VOICE_DIR} / {FEMALE_VOICE_DIR} "
+            f"and missing fallback {FALLBACK_VOICE_MP3}"
+        )
+
+    def pick_from_gender(self, gender: str, *, exclude: Path | None = None) -> Path:
+        pool = [p for p in self.gender_mp3s(gender) if exclude is None or p != exclude]
+        if not pool:
+            pool = self.gender_mp3s(gender)
+        if not pool:
+            return self.fallback_voice()
+        return self.resolve_voice_mp3(random.choice(pool))
+
+    def pick_speaker_voices(self, script: dict) -> dict[str, Path]:
+        """Map speaker → wav reference. Same-gender OP/OTHER get two different mp3s."""
+        op_g = script["op_gender"]
+        other_g = script.get("other_gender")
+        needs_other = other_g is not None and any(
+            seg.get("speaker") == "other" for seg in script["segments"]
+        )
+
+        if needs_other and other_g == op_g:
+            pool = self.gender_mp3s(op_g)
+            if len(pool) >= 2:
+                a, b = random.sample(pool, 2)
+                voices = {"op": self.resolve_voice_mp3(a), "other": self.resolve_voice_mp3(b)}
+            elif len(pool) == 1:
+                only = self.resolve_voice_mp3(pool[0])
+                voices = {"op": only, "other": only}
+            else:
+                fb = self.fallback_voice()
+                voices = {"op": fb, "other": fb}
+        else:
+            voices = {"op": self.pick_from_gender(op_g)}
+            if needs_other:
+                voices["other"] = self.pick_from_gender(other_g)
+            else:
+                voices["other"] = voices["op"]
+
+        print(
+            f"Voices: op={voices['op'].name} ({op_g})"
+            + (f", other={voices['other'].name} ({other_g})" if needs_other else "")
+        )
+        return voices
 
     def hf_chat_json(self, client: InferenceClient, prompt: str) -> str:
         messages = [
