@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import random
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
@@ -265,23 +266,28 @@ class Auto(Channel):
         if not speaker_refs.get("op"):
             raise RuntimeError("No OP voice reference resolved — check assets/auto/male|female")
         clip_paths = []
-        for i, seg in enumerate(script["segments"]):
-            speaker = seg.get("speaker", "op")
-            ref = speaker_refs.get(speaker) or speaker_refs["op"]
-            narration = self.tts_text(seg["narration"], speaker)
-            print(f"Segment {i} ({speaker}): {narration[:60]}...")
-            audio_path = self.workdir / f"seg_{i}.wav"
-            video_path = self.workdir / f"seg_{i}_source.mp4"
-            clip_path = self.workdir / f"seg_{i}.mp4"
+        # Overlap Pexels download with TTS — network wait is free during CPU TTS.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            for i, seg in enumerate(script["segments"]):
+                speaker = seg.get("speaker", "op")
+                ref = speaker_refs.get(speaker) or speaker_refs["op"]
+                narration = self.tts_text(seg["narration"], speaker)
+                print(f"Segment {i} ({speaker}): {narration[:60]}...")
+                audio_path = self.workdir / f"seg_{i}.wav"
+                video_path = self.workdir / f"seg_{i}_source.mp4"
+                clip_path = self.workdir / f"seg_{i}.mp4"
 
-            self.voice.synthesize_speech(narration, audio_path, ref)
-            dur = self.voice.wav_duration_seconds(audio_path)
-            print(f"  TTS {dur:.2f}s → {audio_path.name}")
-            self.fetch_stock_video(seg["image_query"], video_path)
-            self.assemble.build_segment_clip(
-                video_path, audio_path, clip_path, narration
-            )
-            clip_paths.append(clip_path)
+                fetch = pool.submit(
+                    self.fetch_stock_video, seg["image_query"], video_path
+                )
+                self.voice.synthesize_speech(narration, audio_path, ref)
+                dur = self.voice.wav_duration_seconds(audio_path)
+                print(f"  TTS {dur:.2f}s → {audio_path.name}")
+                fetch.result()
+                self.assemble.build_segment_clip(
+                    video_path, audio_path, clip_path, narration
+                )
+                clip_paths.append(clip_path)
         return clip_paths
 
     @staticmethod

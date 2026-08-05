@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -18,6 +19,11 @@ VIDEO_HEIGHT = 1920
 WORDS_PER_CAPTION = 2
 
 WHISPER_MODEL_SIZE = "tiny.en"
+
+# Encode for speed on GitHub's free CPU — ultrafast + copy-concat.
+# Resolution stays 1080x1920; preset only affects encode CPU time.
+X264_PRESET = "ultrafast"
+FFMPEG_QUIET = ["-hide_banner", "-loglevel", "error"]
 
 # Distance from the bottom of the frame, in px at the 1080x1920 render
 # resolution. Clear of TikTok/Shorts UI chrome.
@@ -48,6 +54,11 @@ class Assemble:
     def __init__(self, workdir: Path, voice: Voice) -> None:
         self.workdir = workdir
         self.voice = voice
+
+    def use_whisper_captions(self) -> bool:
+        """CAPTION_MODE=whisper (default) or estimated. Set from workflow input."""
+        mode = (os.environ.get("CAPTION_MODE") or "whisper").strip().lower()
+        return mode not in ("estimated", "estimate", "fast")
 
     @classmethod
     def ensure_whisper_loaded(cls) -> WhisperModel:
@@ -179,17 +190,19 @@ class Assemble:
         # Temp caption script for ffmpeg's subtitles filter. Extension must
         # stay a format ffmpeg recognizes (.ass); our code calls these captions.
         caption_path = self.workdir / f"{out_path.stem}_caption.ass"
-        try:
-            words = (
-                precomputed_words
-                if precomputed_words is not None
-                else self.transcribe_words(audio_path)
-            )
-            self.write_caption_aligned(words, duration, caption_path)
-        except Exception as e:
-            print(
-                f"Whisper caption alignment failed ({e}) -- falling back to estimated timing."
-            )
+        if precomputed_words is not None:
+            self.write_caption_aligned(precomputed_words, duration, caption_path)
+        elif self.use_whisper_captions():
+            try:
+                words = self.transcribe_words(audio_path)
+                self.write_caption_aligned(words, duration, caption_path)
+            except Exception as e:
+                print(
+                    f"Whisper caption alignment failed ({e}) -- falling back to estimated timing."
+                )
+                self.write_caption_estimated(caption_text, duration, caption_path)
+        else:
+            print("Caption mode: estimated (skipping Whisper)")
             self.write_caption_estimated(caption_text, duration, caption_path)
 
         caption_filter_path = self.escape_for_filtergraph(caption_path)
@@ -199,7 +212,7 @@ class Assemble:
         # getting eaten by the AAC encoder. No -t — that fought full audio.
         subprocess.run(
             [
-                "ffmpeg", "-y",
+                "ffmpeg", "-y", *FFMPEG_QUIET,
                 "-stream_loop", "-1",
                 "-i", str(video_path),
                 "-i", str(audio_path),
@@ -211,7 +224,7 @@ class Assemble:
                 f"[1:a]aformat=sample_rates=44100:channel_layouts=stereo,"
                 f"apad=pad_dur=0.08[a]",
                 "-map", "[v]", "-map", "[a]",
-                "-c:v", "libx264", "-preset", "veryfast",
+                "-c:v", "libx264", "-preset", X264_PRESET, "-threads", "0",
                 "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-ar", "44100", "-ac", "2",
                 "-shortest",
@@ -222,19 +235,38 @@ class Assemble:
         )
 
     def concat_clips(self, clip_paths: list[Path], out_path: Path) -> None:
-        """Stitch clips back-to-back; each clip's full audio plays before the next."""
+        """Stitch clips back-to-back. Prefer stream-copy (instant); fall back
+        to a re-encode concat if the demuxer rejects the inputs."""
         if len(clip_paths) == 1:
             subprocess.run(
-                ["ffmpeg", "-y", "-i", str(clip_paths[0]), "-c", "copy", str(out_path)],
+                ["ffmpeg", "-y", *FFMPEG_QUIET, "-i", str(clip_paths[0]),
+                 "-c", "copy", str(out_path)],
                 check=True,
             )
             return
 
+        list_file = self.workdir / "concat_list.txt"
+        list_file.write_text(
+            "\n".join(f"file '{p.resolve()}'" for p in clip_paths) + "\n"
+        )
+        copy = subprocess.run(
+            [
+                "ffmpeg", "-y", *FFMPEG_QUIET,
+                "-f", "concat", "-safe", "0", "-i", str(list_file),
+                "-c", "copy",
+                str(out_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if copy.returncode == 0:
+            return
+
+        print(f"Concat stream-copy failed ({copy.stderr[-200:]}); re-encoding.")
         inputs: list[str] = []
         for p in clip_paths:
             inputs += ["-i", str(p)]
         n = len(clip_paths)
-        # Reset timestamps per stream so concat doesn't drop early audio.
         normalized = "".join(
             f"[{i}:v]setpts=PTS-STARTPTS[v{i}];"
             f"[{i}:a]asetpts=PTS-STARTPTS,"
@@ -242,16 +274,15 @@ class Assemble:
             for i in range(n)
         )
         stream_pairs = "".join(f"[v{i}][a{i}]" for i in range(n))
-        filter_complex = (
-            f"{normalized}{stream_pairs}concat=n={n}:v=1:a=1[v][a]"
-        )
+        filter_complex = f"{normalized}{stream_pairs}concat=n={n}:v=1:a=1[v][a]"
         subprocess.run(
             [
-                "ffmpeg", "-y",
+                "ffmpeg", "-y", *FFMPEG_QUIET,
                 *inputs,
                 "-filter_complex", filter_complex,
                 "-map", "[v]", "-map", "[a]",
-                "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+                "-c:v", "libx264", "-preset", X264_PRESET, "-threads", "0",
+                "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-ar", "44100", "-ac", "2",
                 str(out_path),
             ],
@@ -267,7 +298,7 @@ class Assemble:
     ) -> None:
         subprocess.run(
             [
-                "ffmpeg", "-y",
+                "ffmpeg", "-y", *FFMPEG_QUIET,
                 "-i", str(video_path),
                 "-stream_loop", "-1", "-i", str(music_path),
                 "-filter_complex",

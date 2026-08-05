@@ -7,6 +7,14 @@ on:
         description: 'Optional topic override (leave blank to research trending)'
         required: false
         default: ''
+      caption_mode:
+        description: 'Caption timing — whisper (accurate, slower) or estimated (faster)'
+        required: false
+        default: whisper
+        type: choice
+        options:
+          - whisper
+          - estimated
 
 jobs:
   test:
@@ -65,6 +73,7 @@ jobs:
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
           # Blank input => trending research in main.py
           VIDEO_TOPIC: ${{ inputs.topic }}
+          CAPTION_MODE: ${{ inputs.caption_mode || 'whisper' }}
           HF_HOME: ${{ github.workspace }}/hf_cache
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           TOPIC: ${{ inputs.topic || 'trending research' }}
