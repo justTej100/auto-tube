@@ -50,6 +50,26 @@ class Voice:
             cls.model = ChatterboxTurboTTS.from_pretrained(device="cpu")
         return cls.model
 
+    def convert_mp3_cached(self, mp3_path: Path, converted_path: Path) -> Path:
+        """ffmpeg-convert mp3→wav once; reuse converted_path if it already exists.
+        Always mono 24kHz PCM so every male/female ref is the same format for TTS."""
+        if converted_path.exists():
+            return converted_path
+        converted_path.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", str(mp3_path),
+                "-ac", "1", "-ar", "24000", "-c:a", "pcm_s16le",
+                str(converted_path),
+            ],
+            check=True,
+        )
+        return converted_path
+
+    def resolve_mp3_by_stem(self, mp3_path: Path, cache_dir: Path) -> Path:
+        """Convert mp3 → cache_dir/<stem>.wav (cache key = source filename)."""
+        return self.convert_mp3_cached(mp3_path, cache_dir / f"{mp3_path.stem}.wav")
+
     def resolve_reference_clip(
         self, wav_path: Path, mp3_path: Path, converted_path: Path
     ) -> Path:
@@ -58,13 +78,7 @@ class Voice:
         if wav_path.exists():
             return wav_path
         if mp3_path.exists():
-            if not converted_path.exists():
-                converted_path.parent.mkdir(parents=True, exist_ok=True)
-                subprocess.run(
-                    ["ffmpeg", "-y", "-i", str(mp3_path), str(converted_path)],
-                    check=True,
-                )
-            return converted_path
+            return self.convert_mp3_cached(mp3_path, converted_path)
         raise FileNotFoundError(
             f"Missing reference voice clip. Add a 5-20 second recording of the "
             f"target voice at {wav_path} or {mp3_path}."
