@@ -19,15 +19,22 @@ jobs:
         with:
           python-version: '3.11'   # chatterbox-tts requires 3.11 specifically
 
-      - name: Cache voice + caption models
+      - name: Cache TTS + caption models
         uses: actions/cache@v4
         with:
           path: hf_cache/
-          # Holds both Chatterbox-Turbo (voice.py) and faster-whisper
-          # (assemble.py) downloads -- HF_HOME points both at this same
-          # dir. Bump this suffix again any time either model changes,
-          # to force a fresh combined cache instead of reusing a stale one.
+          # Chatterbox-Turbo + faster-whisper model downloads (HF_HOME).
+          # Not the clone reference clips — those are cached below.
+          # Bump suffix when either model changes.
           key: chatterbox-whisper-models-v1
+
+      - name: Cache converted voice refs
+        uses: actions/cache@v4
+        with:
+          # mp3→wav conversions named after each source stem
+          # (build/auto/voices/male1 - dan.wav, etc.)
+          path: build/auto/voices/
+          key: auto-voice-wavs-v2-${{ hashFiles('assets/auto/male/*.mp3', 'assets/auto/female/*.mp3', 'assets/auto/voice_reference.mp3') }}
 
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg

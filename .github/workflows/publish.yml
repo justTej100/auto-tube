@@ -27,16 +27,24 @@ jobs:
         with:
           python-version: '3.11'   # chatterbox-tts requires 3.11 specifically
 
-      - name: Cache voice + caption models
+      - name: Cache TTS + caption models
         id: cache-chatterbox-model
         uses: actions/cache@v4
         with:
           path: hf_cache/
-          # Holds both Chatterbox-Turbo (voice.py) and faster-whisper
-          # (assemble.py) downloads -- HF_HOME points both at this same
-          # dir. Bump this suffix again any time either model changes,
-          # to force a fresh combined cache instead of reusing a stale one.
+          # Chatterbox-Turbo + faster-whisper model downloads (HF_HOME).
+          # Not the clone reference clips — those are cached below.
+          # Bump suffix when either model changes.
           key: chatterbox-whisper-models-v1
+
+      - name: Cache converted voice refs
+        id: cache-voice-refs
+        uses: actions/cache@v4
+        with:
+          # mp3→wav conversions named after each source stem
+          # (build/auto/voices/male1 - dan.wav, etc.)
+          path: build/auto/voices/
+          key: auto-voice-wavs-v2-${{ hashFiles('assets/auto/male/*.mp3', 'assets/auto/female/*.mp3', 'assets/auto/voice_reference.mp3') }}
 
       - name: Install ffmpeg
         id: install-ffmpeg
@@ -95,7 +103,9 @@ jobs:
           elif [ "${{ steps.setup-python.outcome }}" = "failure" ]; then
             FAILED_STEP="Setup Python"
           elif [ "${{ steps.cache-chatterbox-model.outcome }}" = "failure" ]; then
-            FAILED_STEP="Cache voice + caption models"
+            FAILED_STEP="Cache TTS + caption models"
+          elif [ "${{ steps.cache-voice-refs.outcome }}" = "failure" ]; then
+            FAILED_STEP="Cache converted voice refs"
           elif [ "${{ steps.install-ffmpeg.outcome }}" = "failure" ]; then
             FAILED_STEP="Install ffmpeg"
           elif [ "${{ steps.install-deps.outcome }}" = "failure" ]; then

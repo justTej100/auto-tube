@@ -200,14 +200,14 @@ class Assemble:
                 "-i", str(video_path),
                 "-i", str(audio_path),
                 "-t", str(duration),
-                "-vf",
-                f"scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=increase,"
+                "-filter_complex",
+                f"[0:v]scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=increase,"
                 f"crop={VIDEO_WIDTH}:{VIDEO_HEIGHT},"
-                f"setsar=1,"
-                f"fps=30,"
-                f"setpts=PTS-STARTPTS,"
-                f"subtitles='{caption_filter_path}'",
-                "-map", "0:v:0", "-map", "1:a:0",
+                f"setsar=1,fps=30,setpts=PTS-STARTPTS,"
+                f"subtitles='{caption_filter_path}'[v];"
+                # Explicit audio path so dual-voice segments share identical format.
+                f"[1:a]aformat=sample_rates=44100:channel_layouts=stereo[a]",
+                "-map", "[v]", "-map", "[a]",
                 "-c:v", "libx264", "-preset", "veryfast",
                 "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-ar", "44100", "-ac", "2",
@@ -219,12 +219,29 @@ class Assemble:
         )
 
     def concat_clips(self, clip_paths: list[Path], out_path: Path) -> None:
-        list_file = self.workdir / "concat_list.txt"
-        list_file.write_text("\n".join(f"file '{p.resolve()}'" for p in clip_paths))
+        """Filter-based concat so OP/OTHER AAC streams join without clicks."""
+        if len(clip_paths) == 1:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", str(clip_paths[0]), "-c", "copy", str(out_path)],
+                check=True,
+            )
+            return
+
+        inputs: list[str] = []
+        for p in clip_paths:
+            inputs += ["-i", str(p)]
+        n = len(clip_paths)
+        stream_pairs = "".join(f"[{i}:v:0][{i}:a:0]" for i in range(n))
+        filter_complex = (
+            f"{stream_pairs}concat=n={n}:v=1:a=1[v][a];"
+            f"[a]aformat=sample_rates=44100:channel_layouts=stereo[aout]"
+        )
         subprocess.run(
             [
                 "ffmpeg", "-y",
-                "-f", "concat", "-safe", "0", "-i", str(list_file),
+                *inputs,
+                "-filter_complex", filter_complex,
+                "-map", "[v]", "-map", "[aout]",
                 "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-ar", "44100", "-ac", "2",
                 str(out_path),

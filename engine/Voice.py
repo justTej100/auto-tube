@@ -58,22 +58,74 @@ class Voice:
         if wav_path.exists():
             return wav_path
         if mp3_path.exists():
-            if not converted_path.exists():
-                converted_path.parent.mkdir(parents=True, exist_ok=True)
-                subprocess.run(
-                    ["ffmpeg", "-y", "-i", str(mp3_path), str(converted_path)],
-                    check=True,
-                )
-            return converted_path
+            return self.convert_mp3_cached(mp3_path, converted_path)
         raise FileNotFoundError(
             f"Missing reference voice clip. Add a 5-20 second recording of the "
             f"target voice at {wav_path} or {mp3_path}."
         )
 
+    def convert_mp3_cached(self, mp3_path: Path, converted_path: Path) -> Path:
+        """ffmpeg-convert mp3→wav once; reuse converted_path if it already exists.
+        Always mono 24kHz PCM so every male/female ref is the same format for TTS."""
+        if converted_path.exists() and self._is_mono_24k(converted_path):
+            return converted_path
+        converted_path.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", str(mp3_path),
+                "-ac", "1", "-ar", "24000", "-c:a", "pcm_s16le",
+                str(converted_path),
+            ],
+            check=True,
+        )
+        return converted_path
+
+    @staticmethod
+    def _is_mono_24k(path: Path) -> bool:
+        try:
+            with wave.open(str(path), "rb") as f:
+                return f.getnchannels() == 1 and f.getframerate() == 24000
+        except Exception:
+            return False
+
+    def resolve_mp3_by_stem(self, mp3_path: Path, cache_dir: Path) -> Path:
+        """Cache wav as cache_dir/<mp3 stem>.wav — filename is the cache key."""
+        return self.convert_mp3_cached(mp3_path, cache_dir / f"{mp3_path.stem}.wav")
+
     def synthesize_speech(self, text: str, out_path: Path, reference_path: Path) -> None:
         model = self.ensure_model_loaded()
         wav = model.generate(text, audio_prompt_path=str(reference_path))
+        # Peak-normalize so OP/OTHER clones land at similar loudness when stitched.
+        peak = wav.abs().max().clamp(min=1e-8)
+        wav = wav / peak * 0.95
         ta.save(str(out_path), wav, model.sr)
+        # Drop lead-in silence so mid-sentence OTHER handoffs don't gap.
+        self.trim_wav_silence(out_path)
+
+    def trim_wav_silence(self, path: Path, threshold_db: float = -40.0) -> None:
+        """In-place trim of start/end silence — keeps dialogue stitches tight.
+        Keeps the original if trim fails or wipes the file."""
+        trimmed = path.with_name(path.stem + ".trim.wav")
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-y", "-i", str(path),
+                    "-af",
+                    f"silenceremove=start_periods=1:start_silence=0.02:start_threshold={threshold_db}dB:"
+                    f"stop_periods=1:stop_silence=0.05:stop_threshold={threshold_db}dB",
+                    str(trimmed),
+                ],
+                check=True,
+                capture_output=True,
+            )
+            if trimmed.exists() and trimmed.stat().st_size > 1000:
+                trimmed.replace(path)
+            elif trimmed.exists():
+                trimmed.unlink()
+        except Exception as e:
+            print(f"Silence trim skipped ({e})")
+            if trimmed.exists():
+                trimmed.unlink(missing_ok=True)
 
     def wav_duration_seconds(self, path: Path) -> float:
         with wave.open(str(path), "rb") as f:
