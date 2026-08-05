@@ -84,9 +84,40 @@ class Voice:
             f"target voice at {wav_path} or {mp3_path}."
         )
 
+    def convert_mp3_cached(self, mp3_path: Path, converted_path: Path) -> Path:
+        """ffmpeg-convert mp3→wav once; reuse converted_path if it already exists.
+        Always mono 24kHz PCM so every male/female ref is the same format for TTS."""
+        if converted_path.exists() and self._is_mono_24k(converted_path):
+            return converted_path
+        converted_path.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", str(mp3_path),
+                "-ac", "1", "-ar", "24000", "-c:a", "pcm_s16le",
+                str(converted_path),
+            ],
+            check=True,
+        )
+        return converted_path
+
+    @staticmethod
+    def _is_mono_24k(path: Path) -> bool:
+        try:
+            with wave.open(str(path), "rb") as f:
+                return f.getnchannels() == 1 and f.getframerate() == 24000
+        except Exception:
+            return False
+
+    def resolve_mp3_by_stem(self, mp3_path: Path, cache_dir: Path) -> Path:
+        """Cache wav as cache_dir/<mp3 stem>.wav — filename is the cache key."""
+        return self.convert_mp3_cached(mp3_path, cache_dir / f"{mp3_path.stem}.wav")
+
     def synthesize_speech(self, text: str, out_path: Path, reference_path: Path) -> None:
         model = self.ensure_model_loaded()
         wav = model.generate(text, audio_prompt_path=str(reference_path))
+        # Peak-normalize so OP/OTHER clones land at similar loudness when stitched.
+        peak = wav.abs().max().clamp(min=1e-8)
+        wav = wav / peak * 0.95
         ta.save(str(out_path), wav, model.sr)
 
     def wav_duration_seconds(self, path: Path) -> float:

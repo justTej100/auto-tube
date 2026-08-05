@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import random
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
@@ -49,8 +50,8 @@ SCRIPT_JSON_SCHEMA = {
                 "required": ["speaker", "narration", "image_query"],
                 "additionalProperties": False,
             },
-            "minItems": 6,
-            "maxItems": 10,
+            "minItems": 5,
+            "maxItems": 8,
         },
     },
     "required": ["title", "description", "op_gender", "other_gender", "segments"],
@@ -160,6 +161,7 @@ class Auto(Channel):
         voice_mp3: Path = Path("assets/auto/voice_reference.mp3"),
         voice_converted: Path = Path("build/auto/voice_reference_converted.wav"),
         music_path: Path = Path("assets/auto/background_music.mp3"),
+        single_voice: bool = False,
     ):
         super().__init__(
             gemini_api_key,
@@ -178,6 +180,7 @@ class Auto(Channel):
         self.drive_folder_id = drive_folder_id
         self.video_topic = video_topic
         self.music_path = music_path
+        self.single_voice = single_voice
         self._used_pexels_ids: set[int] = set()
         self.trending = Reddit(
             gemini_api_key,
@@ -218,11 +221,55 @@ class Auto(Channel):
                 context.topic,
                 context.research_context,
             )
+            script = self.normalize_script(script)
+            words = self.story_word_count(script)
+            print(f"Script word count: {words} (max {MAX_STORY_WORDS} ≈ 60s)")
+            if words > MAX_STORY_WORDS:
+                raise RuntimeError(
+                    f"Script too long for a 60s video ({words} words > {MAX_STORY_WORDS})"
+                )
             context.script_provider = provider
             return self.normalize_script(script)
 
         script = self.generate_until_quality(once, max_attempts=MAX_QUALITY_RETRIES)
         print(f"Script generated via {context.script_provider}")
+        return script
+
+    @staticmethod
+    def story_word_count(script: dict) -> int:
+        return sum(len((seg.get("narration") or "").split()) for seg in script["segments"])
+
+    @staticmethod
+    def normalize_script(script: dict) -> dict:
+        """Tolerate Gemini casing / missing fields so publish doesn't die on voice pick."""
+        gender_aliases = {
+            "male": "male",
+            "man": "male",
+            "m": "male",
+            "female": "female",
+            "woman": "female",
+            "f": "female",
+        }
+
+        def gender(value) -> str | None:
+            if value is None or value == "":
+                return None
+            return gender_aliases.get(str(value).strip().lower())
+
+        script["op_gender"] = gender(script.get("op_gender")) or "male"
+        script["other_gender"] = gender(script.get("other_gender"))
+
+        segments = script.get("segments") or []
+        if not segments:
+            raise RuntimeError("Script has no segments")
+        for seg in segments:
+            sp = str(seg.get("speaker") or "op").strip().lower()
+            seg["speaker"] = "other" if sp in ("other", "quote", "quoted") else "op"
+            if not seg.get("narration"):
+                raise RuntimeError("Script segment missing narration")
+            if not seg.get("image_query"):
+                seg["image_query"] = "person talking closeup"
+        script["segments"] = segments
         return script
 
     def render_segments(self, script: dict, context: AutoContext) -> list[Path]:
@@ -244,6 +291,14 @@ class Auto(Channel):
             )
             clip_paths.append(clip_path)
         return clip_paths
+
+    @staticmethod
+    def tts_text(narration: str, speaker: str) -> str:
+        """Strip wrapping quotes on OTHER lines so TTS doesn't vocalize them."""
+        text = narration.strip()
+        if speaker == "other" and len(text) >= 2 and text[0] in "\"'" and text[-1] == text[0]:
+            text = text[1:-1].strip()
+        return text
 
     def finalize_assembly(self, clips: list[Path], script: dict, context: AutoContext) -> Path:
         final_path = self.workdir / "final.mp4"
@@ -280,11 +335,24 @@ class Auto(Channel):
     # Auto-only: script generation (Gemini + HF fallback)
     # =========================================================
 
+    def setup_voice(self) -> None:
+        """Prefer gender folders; keep legacy voice_reference as fallback only."""
+        has_gender = bool(self.list_gender_mp3s("male") or self.list_gender_mp3s("female"))
+        try:
+            self.reference_clip = self.voice.resolve_reference_clip(
+                self.voice_wav, self.voice_mp3, self.voice_converted
+            )
+        except FileNotFoundError:
+            if not has_gender:
+                raise
+            self.reference_clip = None
+            print("No legacy voice_reference; using assets/auto/male|female only.")
+
     def format_research_block(self, research_context: str | None) -> str:
         if not research_context or not research_context.strip():
             return ""
         return (
-            "\nUse this live research material when choosing the angle and details:\n"
+            "\nUse this source material when choosing the angle and details:\n"
             f"{research_context.strip()}\n"
         )
 
