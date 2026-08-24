@@ -16,7 +16,11 @@ from huggingface_hub import InferenceClient
 
 from engine.Channel import Channel
 from engine.Reddit import Reddit
-from engine.RedditCard import render_card_clip
+from engine.RedditCard import render_card_png
+
+# How long the Reddit-card hook stays on screen, overlaid on segment 0's
+# footage, before the footage plays on undisturbed.
+CARD_OVERLAY_SECONDS = 3.0
 
 MAX_QUALITY_RETRIES = 3
 MAX_HF_JSON_RETRIES = 3
@@ -229,7 +233,7 @@ class Auto(Channel):
     def render_segments(self, script: dict, context: AutoContext) -> list[Path]:
         self._used_pexels_ids.clear()
         voices = self.pick_speaker_voices(script)
-        clip_paths = [self.render_card_intro(script, context)]
+        clip_paths = []
         for i, seg in enumerate(script["segments"]):
             speaker = seg.get("speaker", "op")
             ref = voices.get(speaker) or voices["op"]
@@ -243,6 +247,10 @@ class Auto(Channel):
             self.assemble.build_segment_clip(
                 video_path, audio_path, clip_path, seg["narration"]
             )
+
+            if i == 0:
+                clip_path = self.overlay_card_on_first_segment(clip_path, script, context)
+
             clip_paths.append(clip_path)
         return clip_paths
 
@@ -464,22 +472,30 @@ class Auto(Channel):
             script = self.generate_with_huggingface(topic, research_context)
             return script, "Hugging Face"
 
-    def render_card_intro(self, script: dict, context: AutoContext) -> Path:
-        """Opening hook clip: a Reddit-post-style card showing the video's
-        title, held for a couple seconds before the narrated segments
-        start. Subreddit label only shown when the topic actually came
-        from live Reddit research (not a manual VIDEO_TOPIC override)."""
+    def overlay_card_on_first_segment(
+        self, clip_path: Path, script: dict, context: AutoContext
+    ) -> Path:
+        """Composites a small Reddit-post-style card over the top of
+        segment 0's footage for the first few seconds, instead of a
+        separate intro clip -- the stock footage and narration keep
+        playing underneath it from frame one. Subreddit label only shown
+        when the topic actually came from live Reddit research (not a
+        manual VIDEO_TOPIC override)."""
         subreddit = (
             f"r/{self.trending.subreddit}"
             if "Reddit" in (context.research_sources or ())
             else None
         )
-        return render_card_clip(
+        card_png = render_card_png(
             script["title"],
-            self.workdir / "seg_card.mp4",
-            self.workdir,
+            self.workdir / "seg_card.png",
             subreddit=subreddit,
         )
+        overlaid_path = self.workdir / "seg_0_carded.mp4"
+        self.assemble.overlay_image(
+            clip_path, card_png, overlaid_path, duration=CARD_OVERLAY_SECONDS
+        )
+        return overlaid_path
 
     # =========================================================
     # Auto-only: stock visuals

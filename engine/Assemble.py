@@ -218,6 +218,39 @@ class Assemble:
             check=True,
         )
 
+    def overlay_image(
+        self,
+        video_path: Path,
+        image_path: Path,
+        out_path: Path,
+        duration: float | None = None,
+        y_frac: float = 0.16,
+    ) -> None:
+        """Composites a (typically transparent) PNG on top of an already-
+        built clip, horizontally centered, starting at y_frac of the
+        frame height. If duration is set, the overlay is only visible for
+        that many seconds from the start of the clip and the footage
+        keeps playing underneath/after it -- used for the Reddit-card
+        hook so it doesn't hold up the video like a separate intro slide."""
+        x_expr = "(main_w-overlay_w)/2"
+        y_expr = f"main_h*{y_frac}"
+        enable = f":enable='lte(t,{duration})'" if duration is not None else ""
+        filter_complex = f"[1:v]format=rgba[ovr];[0:v][ovr]overlay=x={x_expr}:y={y_expr}{enable}"
+
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", str(video_path),
+                "-i", str(image_path),
+                "-filter_complex", filter_complex,
+                "-map", "0:a?",
+                "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+                "-c:a", "copy",
+                str(out_path),
+            ],
+            check=True,
+        )
+
     def concat_clips(self, clip_paths: list[Path], out_path: Path) -> None:
         list_file = self.workdir / "concat_list.txt"
         list_file.write_text("\n".join(f"file '{p.resolve()}'" for p in clip_paths))
