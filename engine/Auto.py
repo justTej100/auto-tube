@@ -16,6 +16,7 @@ from huggingface_hub import InferenceClient
 
 from engine.Channel import Channel
 from engine.Reddit import Reddit
+from engine.RedditCard import render_card_clip
 
 MAX_QUALITY_RETRIES = 3
 MAX_HF_JSON_RETRIES = 3
@@ -228,7 +229,7 @@ class Auto(Channel):
     def render_segments(self, script: dict, context: AutoContext) -> list[Path]:
         self._used_pexels_ids.clear()
         voices = self.pick_speaker_voices(script)
-        clip_paths = []
+        clip_paths = [self.render_card_intro(script, context)]
         for i, seg in enumerate(script["segments"]):
             speaker = seg.get("speaker", "op")
             ref = voices.get(speaker) or voices["op"]
@@ -462,6 +463,23 @@ class Auto(Channel):
             print(f"Gemini unavailable after retries ({e}). Falling back to Hugging Face.")
             script = self.generate_with_huggingface(topic, research_context)
             return script, "Hugging Face"
+
+    def render_card_intro(self, script: dict, context: AutoContext) -> Path:
+        """Opening hook clip: a Reddit-post-style card showing the video's
+        title, held for a couple seconds before the narrated segments
+        start. Subreddit label only shown when the topic actually came
+        from live Reddit research (not a manual VIDEO_TOPIC override)."""
+        subreddit = (
+            f"r/{self.trending.subreddit}"
+            if "Reddit" in (context.research_sources or ())
+            else None
+        )
+        return render_card_clip(
+            script["title"],
+            self.workdir / "seg_card.mp4",
+            self.workdir,
+            subreddit=subreddit,
+        )
 
     # =========================================================
     # Auto-only: stock visuals
