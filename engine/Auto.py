@@ -478,18 +478,10 @@ class Auto(Channel):
         """Composites a small Reddit-post-style card over the top of
         segment 0's footage for the first few seconds, instead of a
         separate intro clip -- the stock footage and narration keep
-        playing underneath it from frame one. Subreddit label only shown
-        when the topic actually came from live Reddit research (not a
-        manual VIDEO_TOPIC override)."""
-        subreddit = (
-            f"r/{self.trending.subreddit}"
-            if "Reddit" in (context.research_sources or ())
-            else None
-        )
+        playing underneath it from frame one."""
         card_png = render_card_png(
             script["title"],
             self.workdir / "seg_card.png",
-            subreddit=subreddit,
         )
         overlaid_path = self.workdir / "seg_0_carded.mp4"
         self.assemble.overlay_image(
