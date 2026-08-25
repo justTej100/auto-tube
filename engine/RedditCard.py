@@ -38,17 +38,11 @@ AVATAR_PALETTE = [
     (255, 69, 0), (0, 121, 211), (70, 209, 128),
     (255, 140, 0), (149, 90, 232), (232, 90, 150),
 ]
-# Award badges next to the username. These are NOT Reddit's own award
-# art (that's Reddit's proprietary/trademarked IP and can't be lifted
-# into a monetized video pipeline) -- they're openly-licensed Twemoji
-# graphics (CC-BY 4.0, https://github.com/twitter/twemoji) that read as
-# "award coins" the same way Reddit's do. Cached to ASSET_BADGE_DIR on
-# first use; ship them there yourself to avoid any network dependency
-# at render time.
-AWARD_EMOJI_CODEPOINTS = ["1f3c6", "1f48e", "1f3c5"]  # trophy, gem, sports medal
-ASSET_BADGE_DIR = Path("assets/badges")
-BADGE_CACHE_DIR = Path("build/badges")
-TWEMOJI_URL = "https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/{code}.png"
+# Award badges next to the username. These are original vector shapes
+# drawn from scratch below (shield / flame / crown / gift / bell / coin /
+# heart, defined further down next to BADGE_DRAWERS) -- not a copy of
+# Reddit's own award art, which is Reddit's proprietary/trademarked IP
+# and can't be lifted into a monetized video pipeline.
 
 FONT_DIR = Path("/usr/share/fonts/truetype/dejavu")
 FONT_BOLD = FONT_DIR / "DejaVuSans-Bold.ttf"
@@ -156,46 +150,126 @@ def _star_points(cx: float, cy: float, r_outer: float, r_inner: float) -> list[t
     return points
 
 
-def _load_badge_image(code: str, size: int) -> Image.Image | None:
-    """Loads one award badge as an RGBA image, checking (in order): a
-    locally bundled copy under ASSET_BADGE_DIR, a previously-downloaded
-    copy under BADGE_CACHE_DIR, then falls back to downloading it from
-    Twemoji (CC-BY 4.0). Returns None if none of that works, so callers
-    can skip the badge instead of crashing the whole render."""
-    local = ASSET_BADGE_DIR / f"{code}.png"
-    cached = BADGE_CACHE_DIR / f"{code}.png"
-
-    for candidate in (local, cached):
-        if candidate.exists():
-            return Image.open(candidate).convert("RGBA").resize((size, size), Image.LANCZOS)
-
-    try:
-        import requests
-
-        r = requests.get(TWEMOJI_URL.format(code=code), timeout=10)
-        r.raise_for_status()
-        cached.parent.mkdir(parents=True, exist_ok=True)
-        cached.write_bytes(r.content)
-        return Image.open(cached).convert("RGBA").resize((size, size), Image.LANCZOS)
-    except Exception as e:
-        print(f"RedditCard: couldn't load award badge {code} ({e}); skipping it.")
-        return None
+def _draw_shield_badge(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color: tuple) -> None:
+    """Original shield-shaped badge with a star punched into it."""
+    pts = [(0, -1), (0.85, -0.6), (0.85, 0.15), (0, 1), (-0.85, 0.15), (-0.85, -0.6)]
+    poly = [(cx + px * r, cy + py * r) for px, py in pts]
+    draw.polygon(poly, fill=color + (255,))
+    ring = tuple(max(0, c - 45) for c in color)
+    draw.line(poly + [poly[0]], fill=ring + (255,), width=2)
+    draw.polygon(_star_points(cx, cy - r * 0.05, r * 0.42, r * 0.18), fill=(255, 255, 255, 235))
 
 
-def _draw_awards_row(img: Image.Image, x: int, cy: int, size: int = 26) -> int:
-    """Pastes a small row of award badge images starting at x, vertically
-    centered on cy. Returns the x position right after the last badge."""
-    step = int(size * 0.8)
-    placed = 0
-    for i, code in enumerate(AWARD_EMOJI_CODEPOINTS):
-        badge = _load_badge_image(code, size)
-        if badge is None:
-            continue
-        bx = x + i * step
-        by = int(cy - size / 2)
-        img.alpha_composite(badge, (bx, by))
-        placed = i + 1
-    return x + size + max(0, placed - 1) * step + 8
+def _draw_flame_badge(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color: tuple) -> None:
+    """Original flame/teardrop badge, two-tone (outer + inner lick)."""
+    outer = [
+        (0, -1), (0.55, -0.5), (0.3, -0.05), (0.55, 0.4),
+        (0, 1), (-0.55, 0.4), (-0.3, -0.05), (-0.55, -0.5),
+    ]
+    poly = [(cx + px * r, cy + py * r) for px, py in outer]
+    draw.polygon(poly, fill=color + (255,))
+    inner_color = (255, 205, 60)
+    inner = [(px * 0.5, py * 0.55 + 0.15) for px, py in outer]
+    ipoly = [(cx + px * r, cy + py * r) for px, py in inner]
+    draw.polygon(ipoly, fill=inner_color + (255,))
+
+
+def _draw_crown_badge(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color: tuple) -> None:
+    """Original crown badge: zigzag top with three jewel dots, solid base."""
+    pts = [
+        (-0.8, 0.9), (-0.8, -0.15), (-0.4, 0.35), (0, -0.9),
+        (0.4, 0.35), (0.8, -0.15), (0.8, 0.9),
+    ]
+    poly = [(cx + px * r, cy + py * r) for px, py in pts]
+    draw.polygon(poly, fill=color + (255,))
+    ring = tuple(max(0, c - 45) for c in color)
+    draw.line(poly + [poly[0]], fill=ring + (255,), width=2)
+    for jx in (-0.4, 0.0, 0.4):
+        jcx, jcy = cx + jx * r, cy + (-0.15 if jx else -0.75) * r
+        jr = r * 0.13
+        draw.ellipse((jcx - jr, jcy - jr, jcx + jr, jcy + jr), fill=(255, 255, 255, 235))
+
+
+def _draw_gift_badge(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color: tuple) -> None:
+    """Original gift-box badge: box body, cross ribbon, bow on top."""
+    box = (cx - 0.8 * r, cy - 0.3 * r, cx + 0.8 * r, cy + 0.9 * r)
+    draw.rectangle(box, fill=color + (255,))
+    lid = (cx - 0.9 * r, cy - 0.55 * r, cx + 0.9 * r, cy - 0.25 * r)
+    draw.rectangle(lid, fill=color + (255,))
+    ribbon_color = (255, 255, 255, 235)
+    draw.rectangle((cx - 0.12 * r, cy - 0.55 * r, cx + 0.12 * r, cy + 0.9 * r), fill=ribbon_color)
+    draw.rectangle((cx - 0.9 * r, cy - 0.45 * r, cx + 0.9 * r, cy - 0.32 * r), fill=ribbon_color)
+    bow_r = r * 0.22
+    draw.ellipse((cx - bow_r * 2, cy - 0.75 * r - bow_r, cx, cy - 0.75 * r + bow_r), fill=ribbon_color)
+    draw.ellipse((cx, cy - 0.75 * r - bow_r, cx + bow_r * 2, cy - 0.75 * r + bow_r), fill=ribbon_color)
+
+
+def _draw_bell_badge(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color: tuple) -> None:
+    """Original bell badge: dome body, base rim, small clapper."""
+    draw.pieslice((cx - 0.75 * r, cy - 0.85 * r, cx + 0.75 * r, cy + 0.65 * r), 180, 360, fill=color + (255,))
+    draw.rectangle((cx - 0.75 * r, cy - 0.1 * r, cx + 0.75 * r, cy + 0.5 * r), fill=color + (255,))
+    draw.rectangle((cx - 0.9 * r, cy + 0.45 * r, cx + 0.9 * r, cy + 0.62 * r), fill=color + (255,))
+    clapper_r = r * 0.16
+    draw.ellipse(
+        (cx - clapper_r, cy + 0.62 * r, cx + clapper_r, cy + 0.62 * r + clapper_r * 2),
+        fill=color + (255,),
+    )
+    top_r = r * 0.1
+    draw.ellipse((cx - top_r, cy - 0.98 * r, cx + top_r, cy - 0.98 * r + top_r * 2), fill=color + (255,))
+
+
+def _draw_coin_badge(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color: tuple) -> None:
+    """Original coin badge: filled circle, ring, star mark in the middle."""
+    draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=color + (255,))
+    ring = tuple(max(0, c - 45) for c in color)
+    draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=ring + (255,), width=2)
+    draw.ellipse((cx - r * 0.72, cy - r * 0.72, cx + r * 0.72, cy + r * 0.72), outline=ring + (255,), width=1)
+    draw.polygon(_star_points(cx, cy, r * 0.45, r * 0.2), fill=(255, 255, 255, 235))
+
+
+def _draw_heart_badge(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color: tuple) -> None:
+    """Original heart badge (distinct from the footer like-heart: filled
+    solid disc behind it for a coin-backed look)."""
+    draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(255, 255, 255, 90))
+    size = r * 1.3
+    x, y = cx - size / 2, cy - size / 2
+    _draw_heart_icon(draw, x, y, size, color)
+
+
+BADGE_DRAWERS = [
+    _draw_shield_badge,
+    _draw_flame_badge,
+    _draw_crown_badge,
+    _draw_gift_badge,
+    _draw_bell_badge,
+    _draw_coin_badge,
+    _draw_heart_badge,
+]
+BADGE_COLORS = [
+    (255, 186, 8),    # shield - gold
+    (255, 90, 54),    # flame - orange/red
+    (149, 90, 232),   # crown - purple
+    (255, 105, 180),  # gift - pink
+    (255, 196, 0),    # bell - yellow/gold
+    (0, 168, 232),    # coin - blue
+    (232, 74, 95),    # heart - red
+]
+
+
+def _draw_awards_row(
+    draw: ImageDraw.ImageDraw, x: int, cy: int, r: int = 13, rng: random.Random | None = None, count: int = 3
+) -> int:
+    """Draws a small row of original award badges (a random mix of
+    shield / flame / crown / gift / bell / coin / heart) starting at x,
+    vertically centered on cy. Returns the x position right after the
+    last badge."""
+    rng = rng or random.Random()
+    indices = rng.sample(range(len(BADGE_DRAWERS)), k=min(count, len(BADGE_DRAWERS)))
+    step = r * 1.9
+    for i, idx in enumerate(indices):
+        bcx = x + r + i * step
+        BADGE_DRAWERS[idx](draw, bcx, cy, r, BADGE_COLORS[idx])
+    return int(x + r * 2 + (len(indices) - 1) * step) + 8
 
 
 def render_card_png(
@@ -256,7 +330,7 @@ def render_card_png(
     name_y = cy - username_font.size / 2 - 2
     draw.text((text_x, name_y), username, font=username_font, fill=TITLE_COLOR)
     awards_x = text_x + draw.textlength(username, font=username_font) + 14
-    _draw_awards_row(img, int(awards_x), int(name_y + username_font.size / 2))
+    _draw_awards_row(draw, int(awards_x), int(name_y + username_font.size / 2), rng=rng)
 
     # Body: wrapped title text
     y = padding + header_h
