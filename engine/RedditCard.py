@@ -40,9 +40,10 @@ AVATAR_PALETTE = [
 ]
 # Award badges next to the username. These are original vector shapes
 # drawn from scratch below (shield / flame / crown / gift / bell / coin /
-# heart, defined further down next to BADGE_DRAWERS) -- not a copy of
-# Reddit's own award art, which is Reddit's proprietary/trademarked IP
-# and can't be lifted into a monetized video pipeline.
+# heart / rocket / balloon / trophy cup / sparkle / ribbon, defined
+# further down next to BADGE_DRAWERS) -- not a copy of Reddit's own
+# award art, which is Reddit's proprietary/trademarked IP and can't be
+# lifted into a monetized video pipeline.
 
 FONT_DIR = Path("/usr/share/fonts/truetype/dejavu")
 FONT_BOLD = FONT_DIR / "DejaVuSans-Bold.ttf"
@@ -236,6 +237,72 @@ def _draw_heart_badge(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float,
     _draw_heart_icon(draw, x, y, size, color)
 
 
+def _draw_rocket_badge(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color: tuple) -> None:
+    """Original rocket badge: nose cone, body, two fins, window."""
+    nose = [(cx, cy - r), (cx + 0.4 * r, cy - 0.25 * r), (cx - 0.4 * r, cy - 0.25 * r)]
+    draw.polygon(nose, fill=color + (255,))
+    draw.rounded_rectangle(
+        (cx - 0.4 * r, cy - 0.3 * r, cx + 0.4 * r, cy + 0.55 * r), radius=r * 0.18, fill=color + (255,)
+    )
+    fin_l = [(cx - 0.4 * r, cy + 0.1 * r), (cx - 0.85 * r, cy + 0.6 * r), (cx - 0.4 * r, cy + 0.55 * r)]
+    fin_r = [(cx + 0.4 * r, cy + 0.1 * r), (cx + 0.85 * r, cy + 0.6 * r), (cx + 0.4 * r, cy + 0.55 * r)]
+    draw.polygon(fin_l, fill=color + (255,))
+    draw.polygon(fin_r, fill=color + (255,))
+    win_r = r * 0.16
+    draw.ellipse((cx - win_r, cy - win_r * 0.9, cx + win_r, cy + win_r * 1.1), fill=(255, 255, 255, 235))
+    flame = [(cx - 0.2 * r, cy + 0.55 * r), (cx + 0.2 * r, cy + 0.55 * r), (cx, cy + 0.95 * r)]
+    draw.polygon(flame, fill=(255, 205, 60, 255))
+
+
+def _draw_balloon_badge(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color: tuple) -> None:
+    """Original balloon badge: rounded teardrop body, knot, string."""
+    draw.ellipse((cx - 0.72 * r, cy - 0.95 * r, cx + 0.72 * r, cy + 0.55 * r), fill=color + (255,))
+    knot = [(cx - 0.12 * r, cy + 0.5 * r), (cx + 0.12 * r, cy + 0.5 * r), (cx, cy + 0.68 * r)]
+    draw.polygon(knot, fill=color + (255,))
+    draw.line([(cx, cy + 0.68 * r), (cx, cy + r)], fill=(160, 160, 160, 255), width=2)
+    highlight_r = r * 0.16
+    draw.ellipse(
+        (cx - 0.32 * r - highlight_r, cy - 0.55 * r - highlight_r, cx - 0.32 * r + highlight_r, cy - 0.55 * r + highlight_r),
+        fill=(255, 255, 255, 150),
+    )
+
+
+def _draw_trophycup_badge(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color: tuple) -> None:
+    """Original trophy-cup badge: cup bowl, two handles, stem, base."""
+    draw.pieslice((cx - 0.55 * r, cy - 0.9 * r, cx + 0.55 * r, cy + 0.3 * r), 0, 180, fill=color + (255,))
+    draw.rectangle((cx - 0.55 * r, cy - 0.7 * r, cx + 0.55 * r, cy - 0.3 * r), fill=color + (255,))
+    draw.arc((cx - 0.95 * r, cy - 0.75 * r, cx - 0.4 * r, cy - 0.15 * r), 60, 300, fill=color + (255,), width=int(r * 0.16))
+    draw.arc((cx + 0.4 * r, cy - 0.75 * r, cx + 0.95 * r, cy - 0.15 * r), 240, 120, fill=color + (255,), width=int(r * 0.16))
+    draw.rectangle((cx - 0.1 * r, cy - 0.05 * r, cx + 0.1 * r, cy + 0.35 * r), fill=color + (255,))
+    draw.rectangle((cx - 0.45 * r, cy + 0.35 * r, cx + 0.45 * r, cy + 0.55 * r), fill=color + (255,))
+
+
+def _draw_sparkle_badge(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color: tuple) -> None:
+    """Original 4-point sparkle/asterisk badge on a soft disc."""
+    draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(255, 255, 255, 70))
+    big = [(cx, cy - r * 0.9), (cx + r * 0.22, cy - r * 0.22), (cx + r * 0.9, cy), (cx + r * 0.22, cy + r * 0.22),
+           (cx, cy + r * 0.9), (cx - r * 0.22, cy + r * 0.22), (cx - r * 0.9, cy), (cx - r * 0.22, cy - r * 0.22)]
+    draw.polygon(big, fill=color + (255,))
+    small_r = r * 0.32
+    sx, sy = cx + r * 0.45, cy - r * 0.5
+    small = [(sx, sy - small_r), (sx + small_r * 0.4, sy), (sx, sy + small_r), (sx - small_r * 0.4, sy)]
+    draw.polygon(small, fill=color + (255,))
+
+
+def _draw_ribbon_badge(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color: tuple) -> None:
+    """Original ribbon-banner badge: circle medallion with two forked
+    ribbon tails hanging below."""
+    tail_l = [(cx - 0.45 * r, cy + 0.1 * r), (cx - 0.1 * r, cy + 0.1 * r), (cx - 0.1 * r, cy + r), (cx - 0.45 * r, cy + 0.75 * r)]
+    tail_r = [(cx + 0.45 * r, cy + 0.1 * r), (cx + 0.1 * r, cy + 0.1 * r), (cx + 0.1 * r, cy + r), (cx + 0.45 * r, cy + 0.75 * r)]
+    draw.polygon(tail_l, fill=color + (255,))
+    draw.polygon(tail_r, fill=color + (255,))
+    medal_r = r * 0.68
+    draw.ellipse((cx - medal_r, cy - medal_r, cx + medal_r, cy + medal_r), fill=color + (255,))
+    ring = tuple(max(0, c - 45) for c in color)
+    draw.ellipse((cx - medal_r, cy - medal_r, cx + medal_r, cy + medal_r), outline=ring + (255,), width=2)
+    draw.polygon(_star_points(cx, cy, medal_r * 0.6, medal_r * 0.26), fill=(255, 255, 255, 235))
+
+
 BADGE_DRAWERS = [
     _draw_shield_badge,
     _draw_flame_badge,
@@ -244,6 +311,11 @@ BADGE_DRAWERS = [
     _draw_bell_badge,
     _draw_coin_badge,
     _draw_heart_badge,
+    _draw_rocket_badge,
+    _draw_balloon_badge,
+    _draw_trophycup_badge,
+    _draw_sparkle_badge,
+    _draw_ribbon_badge,
 ]
 BADGE_COLORS = [
     (255, 186, 8),    # shield - gold
@@ -253,19 +325,23 @@ BADGE_COLORS = [
     (255, 196, 0),    # bell - yellow/gold
     (0, 168, 232),    # coin - blue
     (232, 74, 95),    # heart - red
+    (120, 130, 245),  # rocket - periwinkle
+    (255, 111, 97),   # balloon - coral
+    (255, 179, 0),    # trophy cup - amber
+    (0, 200, 180),    # sparkle - teal
+    (216, 27, 96),    # ribbon - magenta
 ]
 
 
 def _draw_awards_row(
-    draw: ImageDraw.ImageDraw, x: int, cy: int, r: int = 13, rng: random.Random | None = None, count: int = 3
+    draw: ImageDraw.ImageDraw, x: int, cy: int, r: int = 12, rng: random.Random | None = None, count: int = 5
 ) -> int:
-    """Draws a small row of original award badges (a random mix of
-    shield / flame / crown / gift / bell / coin / heart) starting at x,
-    vertically centered on cy. Returns the x position right after the
-    last badge."""
+    """Draws a small row of original award badges (a random mix from the
+    full BADGE_DRAWERS pool) starting at x, vertically centered on cy.
+    Returns the x position right after the last badge."""
     rng = rng or random.Random()
     indices = rng.sample(range(len(BADGE_DRAWERS)), k=min(count, len(BADGE_DRAWERS)))
-    step = r * 1.9
+    step = r * 1.8
     for i, idx in enumerate(indices):
         bcx = x + r + i * step
         BADGE_DRAWERS[idx](draw, bcx, cy, r, BADGE_COLORS[idx])
