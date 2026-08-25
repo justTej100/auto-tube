@@ -24,6 +24,12 @@ from PIL import Image, ImageDraw, ImageFont
 # it stays visible around the edges.
 CARD_WIDTH = 760
 
+# The name shown on the card. Change this string to whatever you want
+# it to always say (e.g. "JazzyStories100"). Leave it as-is and every
+# card uses this exact name -- nothing is randomized unless you pass a
+# different `username=` into render_card_png() yourself.
+DEFAULT_USERNAME = "JazzyStories100"
+
 CARD_COLOR = (255, 255, 255, 255)
 TITLE_COLOR = (10, 10, 10, 255)
 META_COLOR = (120, 124, 126, 255)
@@ -206,7 +212,7 @@ def render_card_png(
     Any field left None is randomly generated. Title is clamped to
     max_lines so the overlay never grows large enough to cover the shot."""
     rng = random.Random(seed)
-    username = username or random_username(rng)
+    username = username or DEFAULT_USERNAME
     if likes is None or comments is None:
         likes, comments = random_stats(rng)
 
