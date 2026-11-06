@@ -10,14 +10,7 @@ from pathlib import Path
 from engine.Auto import Auto
 from engine.RankedNiche import RankedNiche
 
-RANKEDNICHE_VARS = [
-    "RANKEDNICHE_DISCORD_WEBHOOK_URL",
-    "RANKEDNICHE_GOOGLE_CLIENT_ID",
-    "RANKEDNICHE_GOOGLE_CLIENT_SECRET",
-    "RANKEDNICHE_GOOGLE_REFRESH_TOKEN",
-    "RANKEDNICHE_DRIVE_INTAKE_FOLDER_ID",
-    "RANKEDNICHE_DRIVE_OUTPUT_FOLDER_ID",
-]
+
 
 
 def require(name: str) -> str:
@@ -38,6 +31,8 @@ def rankedniche_ready() -> bool:
 
 
 def main():
+
+    # 
     if rankedniche_ready():
         print("Checking RankedNiche intake folder...")
         try:
