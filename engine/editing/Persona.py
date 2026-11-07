@@ -1,71 +1,3 @@
-
-MAX_SCRIPT_RETRIES = 3
-REQUIRED_CLIP_NUMBERS = {"1", "2", "3", "4", "5"}
-MANIFEST_FILENAME = "manifest.json"
-CATALOG_FILENAME = "catalog.json"
-MIN_SFX_MATCH_OVERLAP = 0.34  # need at least ~1/3 of trigger-phrase tokens to line up
-
-SCRIPT_PROMPT_TEMPLATE = """Write narration for a "Top 5 {topic}" countdown video.
-
-Five real clips are already chosen, ranked #1 (the best/most extreme) down
-to #5 (the weakest of the five). Here's what's actually in each one,
-described by whoever sourced them -- ground every line in these specifics,
-never write something generic that could apply to any top-5 list:
-
-{manifest_block}
-
-Write ONE narration segment per rank, in countdown order: start at #5,
-end at #1, so the biggest one lands last as the payoff.
-
-- The #5 segment MUST open with a hook, a question, or a claim that earns
-  the next 3 seconds -- never a boring "let's start with..." line.
-- Ground every segment in the specific facts from that item's description
-  above -- names, numbers, places. Never invent details not in the
-  description.
-- Vary sentence rhythm, write like a person talking to a friend.
-- Never use em dashes, en dashes, or hyphen-as-pause (no "—", "–", or
-  "word - word"). Captions are burned on screen.
-- Avoid AI-writing tells: no "leverage", "delve", "landscape", "robust",
-  "testament", "pivotal", "seamless", or similar. No "it's not just X,
-  it's Y".
-- The #1 segment should land as a genuine payoff, not a flat restatement.
-
-Return JSON in this exact shape:
-{{
-  "title": "...",
-  "description": "...",
-  "segments": [
-    {{"clip_number": 5, "narration": "..."}},
-    {{"clip_number": 4, "narration": "..."}},
-    {{"clip_number": 3, "narration": "..."}},
-    {{"clip_number": 2, "narration": "..."}},
-    {{"clip_number": 1, "narration": "..."}}
-  ]
-}}
-
-JSON rules: double quotes only, no trailing commas, no comments, escape
-inner double quotes as \\". """
-class Persona:
-    def __init__(self, name: str, description: str, voice: Voice):
-        self.gemini_api_key = gemini_api_key
-        self.hf_token = hf_token
-        self.workdir = workdir
-        self.character =""
-        self.attitude = ""
-
-
-        self.voice = Voice(voice_wav, voice_mp3, voice_converted)
-        self.script = Script(gemini_api_key, hf_token, workdir, voice_wav, voice_mp3, voice_converted, google_client_id, google_client_secret, google_refresh_token, discord_webhook_url, discord_username)
-        self.title = Title(gemini_api_key, hf_token, workdir, voice_wav, voice_mp3, voice_converted, google_client_id, google_client_secret, google_refresh_token, discord_webhook_url, discord_username)
-        self.description = Description(gemini_api_key, hf_token, workdir, voice_wav, voice_mp3, voice_converted, google_client_id, google_client_secret, google_refresh_token, discord_webhook_url, discord_username)
-
-        self.topic = topic # used for editing context
-
-    def configure_AI(self, character: str, attitude: str):
-
-
-
-
 """persona.py -- who a channel is, keeping that current, and writing scripts as them.
 
 Pieces, top to bottom:
@@ -73,9 +5,13 @@ Pieces, top to bottom:
   Persona          immutable data + pure helpers (prompt text, banned-phrase check)
   FilePersonaStore load/save one JSON file atomically
   PersonaKeeper    hands out the *current* persona; reloads when the stored one changes
-  ScriptDraft/Script  what the AI must return / what the rest of the pipeline receives
-  PersonaAgent     writes a Script as the persona: Gemini when it is usable right now
-                   (no 429), otherwise Hugging Face. Validates, retries with feedback.
+  Written          a validated draft plus where it came from (provider, persona version)
+  PersonaAgent     writes any draft model as the persona: Gemini when it is usable
+                   right now (no 429), otherwise Hugging Face. Validates, retries
+                   with feedback.
+  Formats          AitaDraft / CountdownDraft (what the AI returns per video type),
+                   countdown_brief(), numbers_grounded(). Self-contained at the
+                   bottom of this file; delete or move it if you define your own.
 
 persona/auto.json looks like:
 
@@ -96,7 +32,12 @@ Usage:
 
     keeper = PersonaKeeper(FilePersonaStore("persona/auto.json"))
     agent = PersonaAgent(keeper, gemini_api_key=GEMINI_KEY, hf_token=HF_TOKEN)
-    script = agent.write_script(brief)       # brief = topic + research + format rules
+    w = agent.write(countdown_brief(topic, manifest_block), CountdownDraft,
+                    checks=[numbers_grounded(manifest_text)])
+    w.draft.segments, w.written_by, w.persona_version
+
+    # persona-free utility call (e.g. SFX placement) that still gets the provider fallback:
+    placement, provider = agent.ask("You place sound effects.", prompt, SfxDraft)
 """
 from __future__ import annotations
 
@@ -106,17 +47,12 @@ import os
 import re
 import tempfile
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Any, Generic, Literal, Protocol, TypeVar
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    field_validator,
-    model_validator,
-)
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 MAX_LEARNINGS = 20      # keep the prompt from growing forever
 MAX_NOTE_CHARS = 200    # one short line per lesson
@@ -257,57 +193,37 @@ class PersonaKeeper:
 
 
 # =============================================================
-# Script schema
+# Result type
 # =============================================================
-_GENDER = {"male": "male", "man": "male", "m": "male",
-           "female": "female", "woman": "female", "f": "female"}
+T = TypeVar("T", bound=BaseModel)
+Check = Callable[[Any], list[str]]   # draft -> problems; [] means pass
 
 
-class Segment(BaseModel):
-    speaker: str = "op"
-    narration: str
-    image_query: str
+@dataclass(frozen=True)
+class Written(Generic[T]):
+    """A validated draft plus provenance, so any video traces back to the
+    exact persona version and provider that produced it."""
+    draft: T
+    written_by: str                  # "gemini" or "hf"
+    persona_name: str
+    persona_version: int
+    persona_fingerprint: str
 
-    @field_validator("speaker", mode="before")
-    @classmethod
-    def _speaker(cls, v):
-        return "other" if str(v or "op").strip().lower() in ("other", "quote", "quoted") else "op"
-
-
-class ScriptDraft(BaseModel):
-    """What the AI returns. Provenance fields are not here so the model can't fill them."""
-    title: str
-    description: str
-    op_gender: Literal["male", "female"] = "male"
-    other_gender: Literal["male", "female"] | None = None
-    segments: list[Segment] = Field(min_length=6, max_length=10)
-
-    @field_validator("op_gender", mode="before")
-    @classmethod
-    def _op(cls, v):
-        return _GENDER.get(str(v or "").strip().lower(), "male")
-
-    @field_validator("other_gender", mode="before")
-    @classmethod
-    def _other(cls, v):
-        return _GENDER.get(str(v or "").strip().lower())
-
-    @model_validator(mode="after")
-    def _no_other_no_gender(self):
-        if not any(s.speaker == "other" for s in self.segments):
-            self.other_gender = None
-        return self
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        d["draft"] = self.draft.model_dump()
+        return d
 
 
-class Script(ScriptDraft):
-    """Draft + provenance, stamped by PersonaAgent."""
-    written_by: str = ""             # "gemini" or "hf"
-    persona_name: str = ""
-    persona_version: int = 0
-    persona_fingerprint: str = ""
-
-
-Check = Callable[[Script], list[str]]   # returns problems; [] means pass
+def _strings(value: Any) -> Iterator[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for v in value.values():
+            yield from _strings(v)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            yield from _strings(v)
 
 
 # =============================================================
@@ -353,7 +269,7 @@ class AllProvidersDown(RuntimeError):
 
 
 class ScriptRejected(RuntimeError):
-    """The AI answered, but never produced a script that passed every check."""
+    """The AI answered, but never produced a draft that passed every check."""
 
 
 def _http_status(exc: BaseException) -> int | None:
@@ -367,7 +283,7 @@ def _http_status(exc: BaseException) -> int | None:
 
 
 class PersonaAgent:
-    """Writes scripts as the current persona.
+    """Writes drafts as the current persona.
 
     Provider choice: if both keys are set, Gemini is probed first with one tiny
     request. A 429 (or any other rejection) means Hugging Face is used instead.
@@ -383,7 +299,6 @@ class PersonaAgent:
         *,
         gemini_model: str = "gemini-3-flash-preview",   # preview names get retired; the probe will surface a 404
         hf_model: str = "meta-llama/Llama-3.1-8B-Instruct",
-        checks: Sequence[Check] = (),
         max_attempts: int = 3,        # script attempts (bad JSON / failed checks)
         gemini_attempts: int = 3,     # transient-error retries per Gemini call (5xx, network)
         retry_wait: float = 10,
@@ -398,7 +313,6 @@ class PersonaAgent:
         self.keeper = keeper
         self.gemini_api_key, self.hf_token = gemini_api_key, hf_token
         self.gemini_model, self.hf_model = gemini_model, hf_model
-        self.checks = list(checks)
         self.max_attempts, self.gemini_attempts = max_attempts, gemini_attempts
         self.retry_wait, self.probe = retry_wait, probe
         self.log, self._sleep = log, sleep
@@ -410,7 +324,10 @@ class PersonaAgent:
     def learn(self, note: str) -> Persona:
         return self.keeper.learn(note)
 
-    def write_script(self, brief: str) -> Script:
+    def write(self, brief: str, draft_type: type[T], *, checks: Sequence[Check] = ()) -> Written[T]:
+        """Write a draft_type as the current persona. Retries (up to max_attempts)
+        with the specific problems fed back when the output is invalid, uses a
+        banned phrase, or fails a check."""
         persona = self.keeper.current()
         system = persona.system_prompt()
         problems: list[str] = []
@@ -420,28 +337,37 @@ class PersonaAgent:
                 user += "\n\nYour last draft had these problems. Fix them:\n" + \
                         "\n".join(f"- {p}" for p in problems)
             try:
-                draft, provider = self._complete(system, user)
+                draft, provider = self.ask(system, user, draft_type)
             except AllProvidersDown:
                 raise
             except ValueError as e:         # bad JSON or schema violation (pydantic's is a ValueError)
                 problems = [f"Output was not valid: {e}"]
-                self.log(f"Script attempt {attempt}/{self.max_attempts}: {problems[0][:200]}")
+                self.log(f"Attempt {attempt}/{self.max_attempts}: {problems[0][:200]}")
                 continue
-            script = Script(
-                **draft.model_dump(),
-                written_by=provider,
-                persona_name=persona.name,
-                persona_version=persona.version,
-                persona_fingerprint=persona.fingerprint,
-            )
-            text = " ".join(s.narration for s in script.segments)
+            text = "\n".join(_strings(draft.model_dump()))
             problems = [f"Contains banned phrase: {b!r}" for b in persona.banned_hits(text)]
-            problems += [p for check in self.checks for p in check(script)]
+            problems += [p for check in checks for p in check(draft)]
             if not problems:
-                self.log(f"Script written via {provider}.")
-                return script
-            self.log(f"Script attempt {attempt}/{self.max_attempts} failed checks: {problems}")
+                self.log(f"Written via {provider}.")
+                return Written(draft, provider, persona.name, persona.version, persona.fingerprint)
+            self.log(f"Attempt {attempt}/{self.max_attempts} failed checks: {problems}")
         raise ScriptRejected(f"{self.max_attempts} attempts failed. Last problems: {problems}")
+
+    def ask(self, system: str, user: str, draft_type: type[T]) -> tuple[T, str]:
+        """One validated call with provider choice and fallback, no persona and
+        no retry on bad output (raises ValueError). Returns (draft, provider)."""
+        errors: dict[str, str] = {}
+        for name in self._providers():
+            try:
+                raw = self._call_gemini(system, user, draft_type) if name == "gemini" \
+                    else self._call_hf(system, user, draft_type)
+            except ProviderUnavailable as e:
+                self.log(f"{name} unavailable: {e}")
+                self._down.add(name)             # stay off it for the rest of the run
+                errors[name] = str(e)
+                continue
+            return draft_type.model_validate(extract_json(raw)), name
+        raise AllProvidersDown(errors or "no provider configured/available")
 
     # ---------- provider selection ----------
     def _providers(self) -> list[str]:
@@ -466,20 +392,6 @@ class PersonaAgent:
                 self.log(f"Gemini {why}: {e}. Using Hugging Face.")
         return self._probe_ok
 
-    def _complete(self, system: str, user: str) -> tuple[ScriptDraft, str]:
-        errors: dict[str, str] = {}
-        for name in self._providers():
-            try:
-                raw = self._call_gemini(system, user) if name == "gemini" \
-                    else self._call_hf(system, user)
-            except ProviderUnavailable as e:
-                self.log(f"{name} unavailable: {e}")
-                self._down.add(name)             # stay off it for the rest of the run
-                errors[name] = str(e)
-                continue
-            return ScriptDraft.model_validate(extract_json(raw)), name
-        raise AllProvidersDown(errors or "no provider configured/available")
-
     # ---------- Gemini ----------
     def _gemini(self):
         if self._gemini_client is None:
@@ -487,13 +399,13 @@ class PersonaAgent:
             self._gemini_client = genai.Client(api_key=self.gemini_api_key)
         return self._gemini_client
 
-    def _gemini_generate(self, system: str, user: str, *, probe: bool = False) -> str:
+    def _gemini_generate(self, system: str, user: str, draft_type: type[BaseModel] | None = None, *, probe: bool = False) -> str:
         from google.genai import types
         if probe:
             contents = "Reply with the single word: ok"
             config = types.GenerateContentConfig(max_output_tokens=16)
         else:
-            schema = json.dumps(ScriptDraft.model_json_schema())
+            schema = json.dumps(draft_type.model_json_schema())
             contents = user
             config = types.GenerateContentConfig(
                 system_instruction=f"{system}\n\nReturn only a JSON object matching this schema:\n{schema}",
@@ -504,11 +416,11 @@ class PersonaAgent:
         )
         return resp.text or ""
 
-    def _call_gemini(self, system: str, user: str) -> str:
+    def _call_gemini(self, system: str, user: str, draft_type: type[BaseModel]) -> str:
         last: BaseException | None = None
         for attempt in range(1, self.gemini_attempts + 1):
             try:
-                return self._gemini_generate(system, user)
+                return self._gemini_generate(system, user, draft_type)
             except ImportError as e:
                 raise ProviderUnavailable(f"google-genai is not installed: {e}") from e
             except Exception as e:
@@ -532,8 +444,8 @@ class PersonaAgent:
             self._hf_client = InferenceClient(api_key=self.hf_token)
         return self._hf_client
 
-    def _call_hf(self, system: str, user: str) -> str:
-        schema = ScriptDraft.model_json_schema()
+    def _call_hf(self, system: str, user: str, draft_type: type[BaseModel]) -> str:
+        schema = draft_type.model_json_schema()
         messages = [
             {"role": "system", "content": (
                 f"{system}\n\nOutput only a valid JSON object matching this schema. "
@@ -563,3 +475,117 @@ class PersonaAgent:
                 last = e
                 self.log(f"HF format {fmt['type'] if fmt else 'plain'} unsupported: {e}")
         raise ProviderUnavailable(f"Hugging Face failed on every response format: {last}") from last
+
+
+# =============================================================
+# AITA story (Auto): two voices, stock-video query per segment
+# =============================================================
+_GENDER = {"male": "male", "man": "male", "m": "male",
+           "female": "female", "woman": "female", "f": "female"}
+
+
+class AitaSegment(BaseModel):
+    speaker: str = "op"
+    narration: str
+    image_query: str
+
+    @field_validator("speaker", mode="before")
+    @classmethod
+    def _speaker(cls, v):
+        return "other" if str(v or "op").strip().lower() in ("other", "quote", "quoted") else "op"
+
+
+class AitaDraft(BaseModel):
+    title: str
+    description: str
+    op_gender: Literal["male", "female"] = "male"
+    other_gender: Literal["male", "female"] | None = None
+    segments: list[AitaSegment] = Field(min_length=6, max_length=10)
+
+    @field_validator("op_gender", mode="before")
+    @classmethod
+    def _op(cls, v):
+        return _GENDER.get(str(v or "").strip().lower(), "male")
+
+    @field_validator("other_gender", mode="before")
+    @classmethod
+    def _other(cls, v):
+        return _GENDER.get(str(v or "").strip().lower())
+
+    @model_validator(mode="after")
+    def _no_other_no_gender(self):
+        if not any(s.speaker == "other" for s in self.segments):
+            self.other_gender = None
+        return self
+
+
+# =============================================================
+# Top-5 countdown (RankedNiche): one segment per clip, #5 down to #1
+# =============================================================
+COUNTDOWN_ORDER = [5, 4, 3, 2, 1]
+
+
+class CountdownSegment(BaseModel):
+    clip_number: int            # "5" from a sloppy model is coerced to 5
+    narration: str
+
+
+class CountdownDraft(BaseModel):
+    title: str
+    description: str
+    segments: list[CountdownSegment] = Field(min_length=5, max_length=5)
+
+    @model_validator(mode="after")
+    def _countdown_order(self):
+        got = [s.clip_number for s in self.segments]
+        if got != COUNTDOWN_ORDER:
+            raise ValueError(f"segments must be clips {COUNTDOWN_ORDER} in that order, got {got}")
+        return self
+
+
+COUNTDOWN_BRIEF = """Write narration for a "Top 5 {topic}" countdown video.
+
+Five real clips are already chosen, ranked #1 (the best/most extreme) down
+to #5 (the weakest of the five). Here's what's actually in each one,
+described by whoever sourced them. Ground every line in these specifics,
+never write something generic that could apply to any top-5 list:
+
+{manifest_block}
+
+Write ONE narration segment per rank, in countdown order: start at #5,
+end at #1, so the biggest one lands last as the payoff.
+
+- The #5 segment MUST open with a hook, a question, or a claim that earns
+  the next 3 seconds. Never a boring "let's start with..." line.
+- Ground every segment in the specific facts from that item's description:
+  names, numbers, places. Never invent details that aren't in the description.
+- The #1 segment should land as a genuine payoff, not a flat restatement.
+"""
+
+
+def countdown_brief(topic: str, manifest_block: str) -> str:
+    return COUNTDOWN_BRIEF.format(topic=topic, manifest_block=manifest_block.strip())
+
+
+# =============================================================
+# Checks (draft -> list of problems; [] means pass)
+# =============================================================
+_NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def _norm(n: str) -> str:
+    return n.replace(",", "").rstrip(".")
+
+
+def numbers_grounded(source_text: str, always_ok: tuple[str, ...] = ("1", "2", "3", "4", "5")) -> Callable[[BaseModel], list[str]]:
+    """Flag digits in the draft that never appear in source_text, a cheap guard
+    against invented figures. Ranks 1-5 are always allowed ("number 3").
+    Numbers spelled out as words ("three million") are not caught."""
+    allowed = {_norm(n) for n in _NUMBER.findall(source_text)} | set(always_ok)
+
+    def check(draft: BaseModel) -> list[str]:
+        text = "\n".join(_strings(draft.model_dump()))
+        bad = sorted({_norm(n) for n in _NUMBER.findall(text)} - allowed)
+        return [f"The number {n} is not in the clip descriptions. Don't invent figures." for n in bad]
+
+    return check
